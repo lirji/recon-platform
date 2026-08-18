@@ -1,0 +1,87 @@
+# recon-platform · 通用自动对账系统
+
+一个**可扩展、可插拔**的自动对账（Reconciliation）平台。首要落地场景是**营销发钱三方对账**——校验「营销引擎判定应发」↔「账务系统实际发放」↔「第三方渠道实际扣款/到账」是否对得上，并把差异定位、分类、闭环处理；同一套引擎可低成本接入支付渠道对账、订单-支付对账等其它场景。
+
+技术基线：**Java 21 / Spring Boot 3.3.5 / Maven 多模块（`com.lrj.recon:recon-platform`）**。构建用仓库自带的 `./mvnw`（wrapper），勿用系统 mvn。
+
+> 完整架构决策与字段级设计见 **[`docs/design/RECON_MVP_DESIGN.md`](docs/design/RECON_MVP_DESIGN.md)**（judge-panel 综合定稿，含领域模型、DDL、四接口签名、桥接两段匹配时序、ADR、口径决议 A0–A8）。
+
+---
+
+## 架构一句话
+
+对账被抽象成**一条稳定流水线 + 四个可插拔点**——通用性来自"分离不变量与变化点"：
+
+```
+拉取 → 标准化 → 勾兑匹配 → 差异判定 → 差异分类 → 差异处理 → 报表/复核闭环
+ ①        ②(标准化)   ②(MatchKey)   ③(判差)                  ④
+```
+
+| 可插拔点 | 接口（recon-core `spi`） | 变化的东西 |
+|---|---|---|
+| ① 数据源 | `SourceAdapter` | DB / CSV文件 / API / MQ |
+| ② 勾兑 | `KeyExtractor` + `MatchStrategy` | 单键 / 组合键 / 桥接 / 1:N 聚合 |
+| ③ 判差 | `DiscrepancyEvaluator` | 精确 / 容差 / （阶段二 Drools） |
+| ④ 处理 | `DiscrepancyHandler` | 告警 / 差异台账 / 冲正建议 / 人工核销 |
+
+**首要场景（营销三方对账）**拆成责任链式两两对账：`SEG1 营销↔账务`（join 营销发放ID）、`SEG2 账务↔渠道`（join 渠道流水号），账务侧作为 **spine（桥梁）**同时持有两键；账务缺记录 → `BRIDGE_BROKEN` 精确定位断哪段。
+
+## 模块与依赖方向（依赖箭头一律指向 `recon-core`）
+
+```
+recon-core        纯 Java 零框架:领域模型 + 四 SPI 接口 + 7 持久化端口 + 领域服务
+                  (SortMergeJoiner / DiscrepancyClassifier / ConservationChecker
+                   / MoneyMath / Fingerprint / Bucketing)
+   ↑          ↑
+recon-source-db   recon-batch (Spring Boot 组合根)
+(DbSourceAdapter   Spring Batch 编排 + 7 个 Jdbc*Store + Flyway 迁移 + 调度
+ keyset 游标)
+```
+
+`recon-core` 由 **ArchUnit 门禁**强制零框架：禁依赖 Spring / Spring Batch / Drools / JDBC / CSV / Flowable / JPA，且**金额路径禁 `double`**。接新数据源或规则只写外圈实现，不改内核。
+
+## 快速开始
+
+```bash
+# 本机(macOS)需先指向 JDK 21
+export JAVA_HOME=$(/usr/libexec/java_home -v 21)
+
+./mvnw -q test                       # 全量编译 + 跑测试(集成测试用 H2 内存库,免 Docker)
+./mvnw -q -pl recon-core test        # 只跑领域内核测试
+./mvnw -pl recon-core test -Dtest=ConservationCheckerTest          # 单个测试类
+./mvnw -pl recon-core test -Dtest=DiscrepancyClassifierTest#missing # 单个方法
+./mvnw -q clean package              # 全量构建打包
+```
+
+- 集成测试默认 **H2 内存库**（MySQL 兼容模式）+ Flyway 迁移，无需外部依赖即可跑绿。
+- 生产 DDL 保持 **MySQL 8 / PostgreSQL / H2 通用**；Spring Batch 元数据按方言拆在 `recon-batch/src/main/resources/db/batch/{h2,mysql,postgresql}`。
+
+## 关键设计不变量（红线）
+
+- **金额**全链路最小货币单位 `long`（分，带符号红蓝字），禁 `double`；跨币种不可直接比，`MoneyMath.addExact` 溢出 fail-fast。
+- **幂等**：每个 Run 有唯一键（scenario+账期+序号），重跑先分批清理机器结果再重算；差异身份用 `fingerprint`（SHA-256，null 键也幂等）。
+- **保护人工核销（最大产品风险）**：机器判差 / 人工处置 / 冲正建议**三表分离**，`discrepancy_disposition` 表**没有删除方法**，重跑物理上碰不到人工痕迹。
+- **守恒自证**：每次 Run 出勾稽报表，按币种分桶做**构造性双向守恒**（左/右口径 residual 均 ≡ 0），不闭合 → `REPORT_IMBALANCE`（视为对账逻辑本身有 bug）。
+- **差异优先级**：一组只发一条主类型，`BRIDGE_BROKEN > CURRENCY_MISMATCH > DUPLICATE/EXTRA > GROUP_SUM_MISMATCH > AMOUNT_MISMATCH > STATUS_MISMATCH > TIMING > MISSING`。
+- **血缘**：每条 record/差异带 `raw_ref`（文件:行号 / 表:主键）可追溯。
+
+**差异类型**：`AMOUNT_MISMATCH`（金额不符）、`MISSING`（应发未发/漏记/漏扣）、`DUPLICATE`（重复）、`EXTRA`（多出）、`GROUP_SUM_MISMATCH`（发放单级总额不符）、`BRIDGE_BROKEN`（账务 spine 断链，分段1/段2）、`CURRENCY_MISMATCH`、`STATUS_MISMATCH`、`TIMING`（跨日错位）、`FX_RATE_DIFF`（留位，阶段二）。
+
+## 分阶段路线图（walking-skeleton）
+
+| 里程碑 | 内容 | 状态 |
+|---|---|---|
+| **M0** | recon-core 纯领域内核（内存 join 证正确性） | ✅ |
+| **M1** | 7 持久化端口 + DbSourceAdapter + Jdbc*Store + Flyway DDL | ✅ |
+| **M2** | 引入 Spring Batch，单线程 Job 端到端走通（H2） | ✅ |
+| **M3** | 分桶并行（BucketPartitioner + per-bucket 索引有序游标）、守恒单遍累计 | 🚧 进行中 |
+| **M4** | 两段桥接场景（`SpineBridgeKeyExtractor` + 营销三方场景装配） | ⏳ |
+| **M5** | 处理链 + 人工核销状态机 + 告警 outbox 中继 + REST | ⏳ |
+| **M6** | CSV 源适配器 + 加固 + 全链路集成测试 | ⏳ |
+
+> 阶段二（平台化）：ReconScenario 配置驱动、Drools 判差、对接 Flowable 差错工单。
+> 阶段三（按需）：Flink 流式做近实时预警，批处理仍是权威定账。
+
+## 不在 MVP 范围（Non-goals）
+
+DSL 规则平台、Flink/Kafka 流式、跨币种汇率换算算法（`fx_*` 字段仅留位只读）、1:N 明细级下钻、自动冲正执行（仅生成建议待人工确认）。

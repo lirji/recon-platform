@@ -1,0 +1,70 @@
+# ── 操作系统生成文件 ──────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+
+# ── IDE / 编辑器本地配置 ──────────────────────────
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.fleet/
+.classpath
+.project
+.settings/
+.factorypath
+**/out/
+# Claude Code 本地私有配置(共享配置仍纳入版本控制)
+.claude/settings.local.json
+
+# ── 本地环境与密钥;示例配置仍需纳入版本控制 ──────
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.jks
+*.p12
+*.pfx
+*.pem
+*.key
+*.local
+
+# ── Java / Maven 构建产物 ────────────────────────
+**/target/
+*.class
+*.hprof
+hs_err_pid*
+replay_pid*
+.attach_pid*
+dependency-reduced-pom.xml
+.flattened-pom.xml
+pom.xml.versionsBackup
+release.properties
+.mvn/timing.properties
+# Maven wrapper 的 jar 由 wrapper 脚本按需下载,不入库(mvnw/mvnw.cmd/.properties 入库)
+.mvn/wrapper/maven-wrapper.jar
+
+# ── H2 / 本地数据库文件(测试默认内存库,若切文件模式) ──
+*.mv.db
+*.trace.db
+*.lock.db
+
+# ── 日志、临时文件与运行时状态 ────────────────────
+*.log
+*.pid
+*.pid.lock
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+**/logs/
+**/tmp/
+**/temp/
+**/.cache/
+
+# ── 工作流脚手架产物(临时,非项目内容) ─────────────
+docs/design/M2_LAUNCH_ARGS.json

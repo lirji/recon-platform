@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- 继承 spring-boot-starter-parent 仅为拿依赖/插件管理基线 (junit5/assertj/surefire 版本对齐)。
+         recon-core 本身零框架, 不引入任何 spring 运行时依赖。 -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.5</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.lrj.recon</groupId>
+    <artifactId>recon-platform</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>recon-platform</name>
+    <description>通用自动对账系统 (六边形分层, recon-core 纯领域内核)</description>
+
+    <!-- 阶段一 MVP:
+         M0 = recon-core (纯领域内核垂直切片);
+         M1 = recon-source-db (DB keyset 源适配器) + recon-batch (组合根: JDBC 持久化 + Flyway, 本轮不放 Batch Job)。
+         其余外圈模块 (source-csv/rule/handler/scenario) 归 M2+。 -->
+    <modules>
+        <module>recon-core</module>
+        <module>recon-source-db</module>
+        <module>recon-batch</module>
+    </modules>
+
+    <properties>
+        <java.version>21</java.version>
+        <archunit.version>1.3.0</archunit.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- ArchUnit 不在 spring-boot BOM 中, 本平台统一版本 -->
+            <dependency>
+                <groupId>com.tngtech.archunit</groupId>
+                <artifactId>archunit-junit5</artifactId>
+                <version>${archunit.version}</version>
+            </dependency>
+            <!-- 平台内部模块统一版本 -->
+            <dependency>
+                <groupId>com.lrj.recon</groupId>
+                <artifactId>recon-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.lrj.recon</groupId>
+                <artifactId>recon-source-db</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+</project>

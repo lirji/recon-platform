@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.lrj.recon</groupId>
+        <artifactId>recon-platform</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>recon-source-db</artifactId>
+    <name>recon-source-db</name>
+    <description>数据源适配器 (DB): DbSourceAdapter 用 JdbcTemplate keyset 游标惰性分页拉取, 实现 SourceAdapter SPI。</description>
+
+    <!--
+      外圈适配器: 只依赖 recon-core (端口/SPI/领域模型) + spring-jdbc (JdbcTemplate)。
+      不引入 Spring Boot autoconfig / Batch / Drools / CSV / Flowable —— 由 ArchitectureTest 门禁。
+    -->
+    <dependencies>
+        <dependency>
+            <groupId>com.lrj.recon</groupId>
+            <artifactId>recon-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-jdbc</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

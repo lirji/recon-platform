@@ -1,0 +1,62 @@
+# recon-batch 组合根配置。
+# 默认 H2 内存 (MySQL 兼容模式), 免 Docker 本地可跑; 生产用 DB_URL/DB_USER/DB_PASSWORD 覆盖为 MySQL8/PG。
+# Flyway 在启动/测试期迁移 V1 (领域 schema) + V2 (Batch 元数据)。
+spring:
+  application:
+    name: recon-batch
+  datasource:
+    url: ${DB_URL:jdbc:h2:mem:recon;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE}
+    username: ${DB_USER:sa}
+    password: ${DB_PASSWORD:}
+    hikari:
+      # M3 分桶并行: 每个 partition worker 峰值持 3 连接 (LEFT/RIGHT 两条流式游标 + chunk 事务连接),
+      # 并发度 = recon.partition.pool-size (默认 4) → 需 ~12 连接; 加 JobRepository/汇总步余量, 池设 20.
+      # 生产按 partition 池大小 × 3 + 余量调, 并与 DB max_connections 对齐 (DB_POOL_SIZE 覆盖).
+      maximum-pool-size: ${DB_POOL_SIZE:20}
+  flyway:
+    enabled: true
+    # V1 领域 schema 在 db/migration (MySQL8/PG/H2 通用, 无子目录); V3 match_key collation pin (遗留②) 按方言放
+    # db/schema/{vendor}; V2 Batch 元数据按方言放 db/batch/{vendor}. Flyway 合并全部 location 按版本号全局排序
+    # (V1→V2→V3). {vendor}=h2|mysql|postgresql: 遗留②→MySQL utf8mb4_bin / PG COLLATE "C" / H2 no-op.
+    locations: classpath:db/migration,classpath:db/schema/{vendor},classpath:db/batch/{vendor}
+    baseline-on-migrate: false
+  sql:
+    init:
+      mode: never
+  # M2: Spring Batch autoconfig.
+  batch:
+    jdbc:
+      # 元数据表由 Flyway V2 建, 关掉 Boot 的自动建表 (否则与 Flyway 撞车).
+      initialize-schema: never
+      # H2/MySQL 兼容: JobRepository 建执行记录用 READ_COMMITTED, 避开 H2 SERIALIZABLE 摩擦.
+      isolation-level-for-create: READ_COMMITTED
+    job:
+      # 不在应用启动时自动跑 Job (由调度/REST/测试显式 JobLauncher 触发). M5 起接调度.
+      enabled: false
+
+# M2 记录游标批取行数 (非 MySQL); MySQL 走 fetchSize=Integer.MIN_VALUE 真流式 (隐患②, 代码内按方言判定).
+recon:
+  record-cursor:
+    fetch-size: 1000
+  rerun:
+    batch-limit: 10000
+  # M3 matchEvaluate worker 每 chunk 组数 (#7: 可调小以测多 chunk 跨界 + cumulative partial 覆盖正确性).
+  match:
+    chunk-size: ${RECON_MATCH_CHUNK_SIZE:100}
+  # M3 分桶并行 (设计 §11 M3).
+  partition:
+    # matchEvaluateStep 有界线程池并发度 (partition worker 并行数). 与 hikari.maximum-pool-size 权衡:
+    # 每 worker 峰值 3 连接, 故 pool-size × 3 + 余量 <= 连接池上限. 生产按机器核数/DB 承载调.
+    pool-size: ${RECON_PARTITION_POOL_SIZE:4}
+  # M3 数据倾斜 (设计 §6): 检测始终开; 二级 sub-bucket 为可选兜底, 默认关.
+  skew:
+    # 单 bucket 行数 > 均值 × factor 且 >= min-rows 记为热点 (A8: 5×). 仅告警/触发 sub-bucket, 不改判差结果.
+    factor: ${RECON_SKEW_FACTOR:5.0}
+    min-rows: ${RECON_SKEW_MIN_ROWS:1000}
+    sub-bucket:
+      # 开启后热点 bucket 拆成 fanout 个子分区并行 (按 match_key 二级散列, 保 join 对齐 + 守恒不重漏). 默认关.
+      # #4 取舍诚实标注: 每个子分区仍<b>扫描整个热桶</b>再在内存按 subIndex 过滤 → 该桶数据被重复扫描 fanout 遍
+      # (用 IO 放大换判差并行度). 仅当热桶瓶颈在判差 CPU 而非 IO 时划算; 无法把 subIndex 过滤下推 DB
+      # (依赖 Java hashCode+avalanche, 无可移植 SQL 等价). 故默认关, 作显式 opt-in 兜底; 开启代价见 BucketPartitioner 告警日志.
+      enabled: ${RECON_SKEW_SUBBUCKET_ENABLED:false}
+      fanout: ${RECON_SKEW_SUBBUCKET_FANOUT:8}
