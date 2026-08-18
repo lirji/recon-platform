@@ -8,6 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Java 21 / Spring Boot 3.3.5 / Maven 多模块（`com.lrj.recon:recon-platform`，`0.0.1-SNAPSHOT`，pom 打包）。ArchUnit 1.3.0 作持续门禁。构建用仓库自带的 `./mvnw`（wrapper），**勿用系统 mvn**。集成测试用 H2 内存库（MySQL 兼容模式）+ Flyway，免 Docker 可跑绿。
 
+前端 `recon-console` 为独立 React 18 + TypeScript + Vite 5 + Ant Design 5 SPA，包管理器固定 pnpm；开发期 `/recon` 代理到后端 8080。
+
 ## 构建与测试
 
 ```bash
@@ -18,6 +20,12 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 21)   # 本机(macOS)跑 mvn 前必
 ./mvnw -pl recon-core test -Dtest=ClassName            # 单个测试类
 ./mvnw -pl recon-core test -Dtest=ClassName#methodName # 单个方法
 ./mvnw -q clean package               # 全量打包
+
+cd recon-console
+pnpm install
+pnpm test                             # Vitest + Testing Library
+pnpm build                            # TypeScript + Vite production build
+pnpm e2e                              # Playwright desktop/mobile mock API smoke
 ```
 
 `recon-batch` 是唯一的 Spring Boot 组合根；对账作业是 Spring Batch Job `reconciliationJob`，`spring.batch.job.enabled=false`（不随 Boot 启动自动跑，由调度/测试显式 launch）。
@@ -30,6 +38,7 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 21)   # 本机(macOS)跑 mvn 前必
 - **`recon-scenario`**：营销三方两段桥接场景、key extractor 与 segment 定义。
 - **`recon-handler`**：纯 Java 处理链（台账、冲正建议、outbox 入队、Flowable 占位）。
 - **`recon-batch`**（组合根）：Spring Batch 编排 + JDBC 适配器 + Flyway + REST + 调度 + 告警中继。
+- **`recon-console`**（独立前端）：运营工作台、Run 管理、差异处理；React Query 管服务端状态，金额按字符串接收避免 BIGINT 精度损失。
 
 **ArchUnit 门禁（每模块各一份 `ArchitectureTest`，改动别踩）**：`recon-core` 的 `..domain..`/`..spi..`/`..application..` 禁依赖 `org.springframework..`、`org.springframework.batch..`、`org.kie..`、`java.sql..`、CSV、`org.flowable..`、JPA、`..adapter..`；额外一条**金额路径禁 `double`/`Double`**。Spring Batch/JDBC 只允许落在 `recon-batch` 的 `job`/`config`/`persistence` 包。接新数据源/规则只写外圈实现，别把框架依赖漏进 core。
 
@@ -46,6 +55,8 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 21)   # 本机(macOS)跑 mvn 前必
 **M5 幂等与并发**：`fingerprint` 是跨重跑的业务身份，`discrepancy_id` 则由 `runId + fingerprint` 派生为 run-local 稳定 UUID，不能把 fingerprint 直接当全局主键。事务内可重复插入使用 `JdbcDuplicateSafeInsert` 的 NESTED/savepoint，避免 PostgreSQL 唯一键异常毒化外层事务。人工处置收敛先锁同场景账期 Run 行，并且只有最大 sequence 的 Run 可更新视图；re-link/STALE 均带 version 条件，不能覆盖并发人工操作。
 
 **M5 发起与外部副作用**：REST 和 scheduler 都经 `ReconLaunchService` 原子分配 seq；MVP 只接受 `recon.launch.scenario-code` 对应的确定性 Job，`bucketCount` 为 1..4096。AlertHandler 在 chunk 内只写 outbox；`AlertRelayService.relayOnce` 用 `NOT_SUPPORTED` 挂起外层事务，外部 I/O 后再以每条 `REQUIRES_NEW` 短事务置 SENT/FAILED。默认 dispatcher 只记日志，生产需用 `@Primary AlertDispatcher` 替换。
+
+**管理台查询与安全边界**：只读跨聚合投影由 `ReconConsoleQueryService` + `JdbcReconConsoleQueryStore` 提供，JDBC 仍只在 persistence；Run/差异列表强制分页，size 上限 100。新查询 DTO 的金额字段使用十进制字符串，前端禁止把 BIGINT 转成 `number` 做业务计算。auth 按用户要求延后，接入前管理台只允许本地/受控内网使用；未来 operator 必须改从后端可信身份上下文获取。
 
 **分桶与勾兑（易踩坑）**：`bucket = floorMod(hash(group_key), N)`（桶键=group_key，`Bucketing`）。**不变式：match_key 必须是 group_key 的细分**（同一 match_key 只属唯一 group_key）——M2/M3 为 `match_key==group_key`（IDENTITY 特例），**M4 放宽为一般 refine**（如 SEG1 营销发放ID→发放单号 1:N）。生产装载期唯一 refine 关卡是 `StandardizeProcessor` 调 **`Bucketing.assertRefine`**（O(1) 结构性，允许 match≠group）；`assertIdentityRefine`/`assertRefineFunction` 是特例/函数性校验，**main 代码不接线**（仅单测/离线抽样）。⚠️ **函数性 refine（同 match_key 跨两侧→同 group_key）生产热路径不逐条校验**（千万级不建全表映射），脏跨表数据违反会产假 BRIDGE_BROKEN/EXTRA 且守恒抓不到——见 `docs/KNOWN_ISSUES.md` KI-6。`match_key` 可空且是勾兑键：游标排序用**可移植 `ORDER BY (match_key IS NULL), match_key`**（消除 MySQL NULLS-first vs PG NULLS-last），**null 键记录逐条路由为单边组、绝不进 `SortMergeJoiner`**（joiner 拒 null 键会抛异常）；同 group_key 下多条 null-key 差异靠 rawRef 鉴别 fingerprint 防碰撞（否则台账 undercount）。
 

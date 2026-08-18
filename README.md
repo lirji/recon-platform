@@ -4,6 +4,8 @@
 
 技术基线：**Java 21 / Spring Boot 3.3.5 / Maven 多模块（`com.lrj.recon:recon-platform`）**。构建用仓库自带的 `./mvnw`（wrapper），勿用系统 mvn。
 
+运营管理台位于 **`recon-console`**，采用 React 18 / TypeScript / Vite 5 / Ant Design 5；前后端独立构建，通过同源 `/recon` 接口联调。
+
 > 完整架构决策与字段级设计见 **[`docs/design/RECON_MVP_DESIGN.md`](docs/design/RECON_MVP_DESIGN.md)**（judge-panel 综合定稿，含领域模型、DDL、四接口签名、桥接两段匹配时序、ADR、口径决议 A0–A8）。
 
 ---
@@ -77,6 +79,33 @@ curl http://localhost:8080/recon/runs/MARKETING_3WAY:2026-08-18:1/report
 ```
 
 调度默认关闭。生产可设置 `RECON_SCHEDULER_ENABLED=true`，再配置 `RECON_SCHEDULER_LAUNCH_CRON`；告警默认由日志 dispatcher 接收，接真实通道时提供一个 `@Primary AlertDispatcher`。完整默认值见 `recon-batch/src/main/resources/application.yml`。
+
+## 运营管理台
+
+管理台覆盖工作台、运行管理和差异处理：可查看运行健康度与差异构成，筛选分页 Run/差异，发起或重跑任务，查看守恒报表、原始血缘、审计、冲正建议和告警状态，并执行核销/关闭。
+
+后端为管理台新增以下只读接口，原有写接口保持兼容：
+
+| 接口 | 用途 |
+|---|---|
+| `GET /recon/dashboard` | 指标、差异类型构成、最近运行 |
+| `GET /recon/runs` | Run 筛选和分页 |
+| `GET /recon/runs/{id}` | Run 元数据与精确金额守恒报表 |
+| `GET /recon/discrepancies` | 差异筛选和分页 |
+| `GET /recon/discrepancies/{id}` | 差异、处置、审计、冲正和告警详情 |
+
+```bash
+# 终端 1：启动后端
+export JAVA_HOME=$(/usr/libexec/java_home -v 21)
+./mvnw -pl recon-batch -am spring-boot:run
+
+# 终端 2：启动前端（http://localhost:5173）
+cd recon-console
+pnpm install
+pnpm dev
+```
+
+前端完整命令、代理和容器说明见 `recon-console/README.md`。当前阶段**尚未接入 auth**，`operator` 仍由人工处置表单提交，只能用于本地或受控内网，不得直接暴露公网。
 
 ## M6 CSV 数据源
 

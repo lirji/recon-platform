@@ -47,6 +47,13 @@ release.properties
 # Maven wrapper 的 jar 由 wrapper 脚本按需下载,不入库(mvnw/mvnw.cmd/.properties 入库)
 .mvn/wrapper/maven-wrapper.jar
 
+# ── Node / 前端构建与测试产物 ─────────────────────
+**/node_modules/
+**/dist/
+**/playwright-report/
+**/test-results/
+**/coverage/
+
 # ── H2 / 本地数据库文件(测试默认内存库,若切文件模式) ──
 *.mv.db
 *.trace.db
