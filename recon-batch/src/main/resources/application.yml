@@ -38,6 +38,19 @@ spring:
 recon:
   record-cursor:
     fetch-size: 1000
+  # M4 营销三方场景两段判差规则 (修复 D). 默认 EXACT (阈值忽略, 等价精确比较); 改 TOLERANCE 并配阈值即让该段
+  # 运行态经 EvaluatorFactory 命中 ToleranceEvaluator —— |expected-actual| 落在绝对(minor)或比例(bps=万分之一)
+  # 阈值内 (取更宽者) 的 AMOUNT_MISMATCH 视为匹配不产差. 阈值 <=0 表示该阈值关闭. DROOLS 运行期 fail-fast.
+  scenario:
+    mkt:
+      seg1:
+        evaluator-type: ${RECON_MKT_SEG1_EVALUATOR:EXACT}     # EXACT | TOLERANCE | DROOLS
+        abs-tolerance-minor: ${RECON_MKT_SEG1_ABS_TOL:0}      # 绝对金额容差 (最小货币单位/分)
+        ratio-tolerance-bps: ${RECON_MKT_SEG1_RATIO_BPS:0}    # 比例容差 (bps, 以权威侧 expected 为基数)
+      seg2:
+        evaluator-type: ${RECON_MKT_SEG2_EVALUATOR:EXACT}
+        abs-tolerance-minor: ${RECON_MKT_SEG2_ABS_TOL:0}
+        ratio-tolerance-bps: ${RECON_MKT_SEG2_RATIO_BPS:0}
   rerun:
     batch-limit: 10000
   # M3 matchEvaluate worker 每 chunk 组数 (#7: 可调小以测多 chunk 跨界 + cumulative partial 覆盖正确性).

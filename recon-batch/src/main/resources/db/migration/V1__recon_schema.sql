@@ -37,7 +37,9 @@ CREATE TABLE recon_run_seq (
 
 -- staging: 标准化统一模型, 排序介质 = idx_merge
 CREATE TABLE recon_record (
-  record_id           VARCHAR(64) PRIMARY KEY,
+  -- 全局唯一键 = run:segment:side:table:pk (同一源行被多个 (segment,side) 读取时不撞 PK, 如 spine 账务两读);
+  -- 血缘 raw_ref 仍是 table:pk。加长到 512 以容纳组合键: run_id(64)+segment_id(32)+side(8)+raw_ref(256)+3 分隔符 = 上界 363。
+  record_id           VARCHAR(512) PRIMARY KEY,
   run_id              VARCHAR(64)  NOT NULL,
   segment_id          VARCHAR(32)  NOT NULL,          -- SEG1_MKT_ACCT | SEG2_ACCT_CHANNEL
   side                VARCHAR(8)   NOT NULL,           -- LEFT | RIGHT

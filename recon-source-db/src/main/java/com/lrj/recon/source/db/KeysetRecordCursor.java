@@ -87,6 +87,10 @@ final class KeysetRecordCursor implements RecordCursor {
     private Row mapRow(ResultSet rs, int rowNum) throws SQLException {
         Object id = rs.getObject(cfg.idColumn);
         String rawRef = cfg.table + ":" + id;
+        // record_id 全局唯一键: 同一源行会被多个 (segment, side) 读取 (spine 账务两读: SEG1 右 / SEG2 左),
+        // 若直接用 rawRef=table:pk 作主键会撞 recon_record PK。故 record_id 加 (run, segment, side) 前缀唯一化;
+        // rawRef (血缘 table:pk) 保持不变。
+        String recordId = ctx.runId() + ":" + ctx.segmentId() + ":" + ctx.side().name() + ":" + rawRef;
 
         String groupValue = rs.getString(cfg.groupKeyColumn);
         if (groupValue == null) {
@@ -120,7 +124,7 @@ final class KeysetRecordCursor implements RecordCursor {
         EntryType entryType = parseEntryType(rs);
 
         ReconRecord record = ReconRecord.builder()
-                .recordId(rawRef)
+                .recordId(recordId)
                 .runId(ctx.runId())
                 .segmentId(ctx.segmentId())
                 .side(ctx.side())

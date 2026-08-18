@@ -3,6 +3,9 @@ package com.lrj.recon.core;
 import com.lrj.recon.core.domain.service.Bucketing;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -67,5 +70,47 @@ class BucketingTest {
                 .hasMessageContaining("refine invariant violated");
         assertThatThrownBy(() -> Bucketing.assertIdentityRefine("I-1", null))
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    // ---------- M4: 放宽版 refine (允许 match != group) ----------
+
+    @Test
+    void relaxedRefineAllowsMatchDifferentFromGroup() {
+        // M4 SEG1: match=营销发放ID, group=发放单号 (1:N), match != group 但合法 (只要能分桶)
+        Bucketing.assertRefine("ISSUE-1", "ORDER-9");   // 放行
+        Bucketing.assertRefine("ISSUE-2", "ORDER-9");   // 同发放单不同 issue, 放行
+        Bucketing.assertRefine("K", "K");               // IDENTITY 是特例, 放行
+        Bucketing.assertRefine(null, "ORDER-9");        // 该侧无键 (null 相位), 放行
+    }
+
+    @Test
+    void relaxedRefineFailsFastWhenMatchPresentButNoGroupToBucket() {
+        // 带 match_key 却无 group_key → 无法分桶 → fail-fast
+        assertThatThrownBy(() -> Bucketing.assertRefine("ISSUE-1", null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("refine invariant violated");
+    }
+
+    @Test
+    void functionalRefineAcceptsOneToManyGroupAndDistinctMatchKeys() {
+        Map<String, String> witnessed = new HashMap<>();
+        // 同发放单 ORDER-9 下两条不同 issue → 1:N, 各 issue 映射唯一发放单, 合法
+        Bucketing.assertRefineFunction("ISSUE-1", "ORDER-9", witnessed);
+        Bucketing.assertRefineFunction("ISSUE-2", "ORDER-9", witnessed);
+        // 重复见同 (match, group) 幂等放行
+        Bucketing.assertRefineFunction("ISSUE-1", "ORDER-9", witnessed);
+        // 另一发放单的 issue
+        Bucketing.assertRefineFunction("ISSUE-3", "ORDER-7", witnessed);
+        assertThat(witnessed).containsEntry("ISSUE-1", "ORDER-9").containsEntry("ISSUE-3", "ORDER-7");
+    }
+
+    @Test
+    void functionalRefineFailsFastWhenMatchKeyMapsToTwoGroups() {
+        Map<String, String> witnessed = new HashMap<>();
+        Bucketing.assertRefineFunction("ISSUE-1", "ORDER-9", witnessed);
+        // 同一 match_key 映射到不同 group_key → 会被分裂到两桶 → fail-fast
+        assertThatThrownBy(() -> Bucketing.assertRefineFunction("ISSUE-1", "ORDER-7", witnessed))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("single group_key");
     }
 }

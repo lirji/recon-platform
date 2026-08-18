@@ -19,6 +19,11 @@ public final class MoneyMath {
         return Math.subtractExact(a, b);
     }
 
+    /** 相乘, 溢出 fail-fast (比例容差 bps 用整数交叉相乘避 double, 见 ToleranceEvaluator)。 */
+    public static long multiplyExact(long a, long b) {
+        return Math.multiplyExact(a, b);
+    }
+
     /** 带符号最小货币单位求和; 累加溢出即 fail-fast。 */
     public static long sumSignedMinor(Iterable<Long> values) {
         long acc = 0L;

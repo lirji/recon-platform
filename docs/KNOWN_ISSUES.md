@@ -29,3 +29,11 @@
 ## KI-5 · REPORT_IMBALANCE 为构造性护栏（正常路径不可达）
 
 - 设计 §8 双向守恒是**构造性恒等**（每条记录恰落一类，residual by-construction ≡0）。`REPORT_IMBALANCE` 分支只在"桶路由被改坏 / 溢出回归"时触发，正常数据不可达。已由 `ReportTaskletImbalanceTest`（注入 residual≠0）覆盖该终态分支，证明门禁真能 fire——它是**回归护栏**，不是常规路径。
+
+## KI-6 · match_key→group_key 数据函数性靠上游保证（脏跨表数据产假 BRIDGE_BROKEN/EXTRA，守恒抓不到）
+
+- **背景**：放宽 refine（M4）后，`StandardizeProcessor` 生产热路径只调 O(1) 的结构性 `Bucketing.assertRefine`（带 `match_key` 必须有非空 `group_key` 以分桶）。**函数性** refine——"同一 `match_key` 跨两侧只映射到唯一 `group_key`"（`Bucketing.assertRefineFunction`）——需跨记录全表 `match→group` 映射，千万级热路径**不能**逐条建表，故只在单测/离线抽样调用。`SpineBridgeKeyExtractor` 的装配期校验也仅覆盖键**字段名**接线（声明非空 + 落库字段名一致），**不**校验数据值。
+- **触发**：脏跨表数据违反函数性——同一 `match_key`（如同一营销发放ID）在左侧记录挂 `group_key=Ga`、右侧记录挂 `group_key=Gb`（`Ga != Gb`）。
+- **影响**：两侧 `bucket = floorMod(hash(group_key), N)` 落**不同桶** → sort-merge join 只在单桶内跑 → 两侧永不相遇 → 左侧成 `LEFT_ONLY`（`MISSING`/`BRIDGE_BROKEN`）、右侧成 `RIGHT_ONLY`（`EXTRA`/`BRIDGE_BROKEN`），即**假 BRIDGE_BROKEN + 假 EXTRA**。因左右额分别独立入各自口径，双向守恒仍 `residual≡0` **balanced**，**门禁抓不到**（守恒只证桶路由/溢出，不证分类判定，见 §8 口径澄清）。
+- **规避（数据质量约束）**：上游保证同一 `match_key` 只属唯一 `group_key`（营销发放ID→唯一发放单号）；MVP 两段的真实数据满足此约束。可选 **opt-in 离线/装配期抽样预校验**：`Bucketing.assertRefineFunction(matchKey, groupKey, witnessed)` 逐条累计 `match→group` 映射，同键映射到不同 group 即 fail-fast——因需跨记录 `witnessed` 状态，**只**用于抽样/有界校验或单测，**不**进千万级热路径。
+- **根治计划（后续加固）**：独立**预校验作业**（对当日源表做全量/抽样 `match→group` 函数性扫描，违规先拦；不占对账热路径）；或在 join 阶段做**跨桶探测**（同 `match_key` 命中多桶即告警），把假阳性从"守恒抓不到"升级为"显式可发现"。

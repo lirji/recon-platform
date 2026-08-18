@@ -28,6 +28,7 @@
     <modules>
         <module>recon-core</module>
         <module>recon-source-db</module>
+        <module>recon-scenario</module>
         <module>recon-batch</module>
     </modules>
 
@@ -53,6 +54,11 @@
             <dependency>
                 <groupId>com.lrj.recon</groupId>
                 <artifactId>recon-source-db</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.lrj.recon</groupId>
+                <artifactId>recon-scenario</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>

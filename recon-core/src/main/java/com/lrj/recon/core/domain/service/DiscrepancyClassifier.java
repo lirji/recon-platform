@@ -188,9 +188,17 @@ public final class DiscrepancyClassifier {
                                      DiscrepancyType type, String bridgeStage) {
         String groupKeyVal = g.groupKey() == null ? null : g.groupKey().value();
         String matchKeyVal = g.matchKey() == null ? null : g.matchKey().value();
+        // 修复 A (台账 undercount): 同一 group_key 下多条 null-match_key 记录 (SEG1 refine 段, 发放ID 列空) 会被逐条
+        // 路由为单条 MatchGroup, 但 fingerprint 的 match_key 段折叠为 '∅' → 它们 fingerprint 相同 →
+        // JdbcDiscrepancyStore.upsertByFingerprint last-wins → 台账只留一条金额, 而 ConservationAccumulator 累计全额
+        // → 台账 undercount 但 residual≡0 骗过守恒门禁。故 match_key 为 null 时, 以<b>记录级鉴别量</b> (该 null-key
+        // 单边组存在侧的 rawRef, table:pk / file:line —— 源记录唯一且跨重跑稳定) 替代 fingerprint 的 match_key 段,
+        // 使每条 null-key 记录得唯一 fingerprint、各自成一行, 台账金额之和 == 守恒 bridge_broken/extra 额。
+        // <b>非 null-match_key 路径 fingerprint 不变</b> (原样传 match_key 值), 保 A1 人工处置跨重跑 re-link 语义。
+        String fingerprintMatchSlot = matchKeyVal != null ? matchKeyVal : nullKeyDiscriminant(g);
         String fingerprint = Fingerprint.of(
                 ctx.scenarioCode(), ctx.accountingPeriod(), ctx.segmentId(),
-                type.name(), groupKeyVal, matchKeyVal, bridgeStage);
+                type.name(), groupKeyVal, fingerprintMatchSlot, bridgeStage);
         return Discrepancy.builder()
                 .discrepancyId(fingerprint) // M0 领域内以 fingerprint 为身份; 持久化层 (M1) 再分配主键
                 .runId(ctx.runId())
@@ -198,7 +206,20 @@ public final class DiscrepancyClassifier {
                 .type(type)
                 .bridgeBreakStage(bridgeStage)
                 .groupKey(groupKeyVal)
-                .matchKey(matchKeyVal)
+                .matchKey(matchKeyVal) // 台账 match_key 列仍存真实 null; 仅 fingerprint 用鉴别量唯一化
                 .fingerprint(fingerprint);
+    }
+
+    /**
+     * null match_key 记录的<b>记录级鉴别量</b>: null 键组必是单边组 (被 SegmentGroupCursor null 相位路由出 join),
+     * 取存在侧的 rawRef 样本 (table:pk / file:line —— 源记录唯一、跨重跑稳定) 作 fingerprint 鉴别量, 防同 group_key
+     * 多条 null-key 记录 fingerprint 碰撞 → 台账 undercount。两侧样本皆空 (schema 上 raw_ref NOT NULL, 理论不达)
+     * 时回退 null, 由 {@link Fingerprint} 折叠为 '∅' (退回旧行为, 不新增 NPE)。
+     */
+    private static String nullKeyDiscriminant(MatchGroup g) {
+        if (g.leftSampleRawRef() != null) {
+            return g.leftSampleRawRef();
+        }
+        return g.rightSampleRawRef();
     }
 }

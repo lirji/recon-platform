@@ -30,9 +30,10 @@ class EvaluatorFactoryTest {
     }
 
     @Test
-    void tolerance_not_implemented_in_m0_fails_fast() {
-        assertThatThrownBy(() -> EvaluatorFactory.create(EvaluatorType.TOLERANCE))
-                .isInstanceOf(UnsupportedOperationException.class);
+    void tolerance_evaluator_wired_in_m4() {
+        // M4: TOLERANCE 不再 fail-fast, 而是路由到 ToleranceEvaluator (阈值 evaluate 期从 rule 读)。
+        DiscrepancyEvaluator e = EvaluatorFactory.create(EvaluatorType.TOLERANCE);
+        assertThat(e.evaluatorId()).isEqualTo("tolerance");
     }
 
     @Test

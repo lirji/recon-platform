@@ -10,8 +10,9 @@ import java.util.Map;
 
 /**
  * M3 分桶并行的 {@link Partitioner} (设计 §6 Step2 / §11 M3): 造 {@code 0..N-1} 个 partition, <b>每个 partition
- * 绑定一个 bucket</b>。因 refine 不变式 (bucket = hash(group_key), match_key == group_key), 每个组恰落唯一 bucket,
- * 故按 bucket 切分<b>无漏无重</b>、组不跨 partition。
+ * 绑定一个 bucket</b>。因 bucket = hash(group_key), 每个 group_key 恰落唯一 bucket, 故按 bucket 切分对 group_key
+ * <b>无漏无重</b>、组不跨 partition。(M4 放宽 refine 后 match_key 可 != group_key; 「同一 match_key 簇不跨 partition」
+ * 不再由 IDENTITY 保证, 而依赖数据满足 refine 函数性 —— 见 {@code StandardizeProcessor} 对 refine 校验的说明。)
  *
  * <p><b>数据倾斜兜底</b> (可选, 默认关): 若 {@code subBucketEnabled} 且某 bucket 被 {@link SkewDetector} 判为热点,
  * 则把它拆成 {@code subFanout} 个二级子分区 (按 match_key 二级散列, 见 {@code Bucketing.subIndexOf}), 分摊热点并行度;
