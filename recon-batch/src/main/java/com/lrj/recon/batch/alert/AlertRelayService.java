@@ -70,13 +70,22 @@ public class AlertRelayService {
             ok = false;
         }
         boolean success = ok;
-        txTemplate.executeWithoutResult(status -> {
-            if (success) {
-                outbox.markSent(entry.id(), Instant.now());
-            } else {
-                outbox.markFailed(entry.id());
-            }
-        });
+        try {
+            txTemplate.executeWithoutResult(status -> {
+                if (success) {
+                    outbox.markSent(entry.id(), Instant.now());
+                } else {
+                    outbox.markFailed(entry.id());
+                }
+            });
+        } catch (RuntimeException persistFailure) {
+            // 状态更新短事务的瞬时故障 (连接回收/死锁/锁超时/提交失败) 也必须被吞: 中继契约是"投递失败不使
+            // Step4/Job 失败、不中断本轮其它条目" (见 relayOnce 与 AlertRelayTasklet javadoc)。此前该 executeWithoutResult
+            // 裸露在 try/catch 外, 一旦抛异常会冒泡至 tasklet 使整个 Job 误标 FAILED。该条保持原态 (PENDING/FAILED),
+            // 由下轮 alertRelayStep 或 @Scheduled 补投 (at-least-once, 下游按幂等键去重)。
+            log.warn("[alert] 状态更新失败 idem={}, 保持原态待下轮补投", entry.idempotencyKey(), persistFailure);
+            return false;
+        }
         return success;
     }
 }
