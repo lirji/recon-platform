@@ -17,7 +17,7 @@
 - Constraints:
   - 鉴权明确延后；当前人工动作仍由表单填写 `operator`，axios 客户端保留未来统一注入令牌的位置。
   - 不改变领域表结构，不把查询 DTO/框架依赖放入 `recon-core`。
-  - 本轮不部署、不提交、不推送；只交付 CI-ready 代码。
+  - 初始交付不部署；用户后续明确授权提交、推送和 Docker 本地部署，端口仅绑定 loopback。
 - Dependencies:
   - Node.js、pnpm；前端通过 Vite `/recon` proxy 联调本地 `recon-batch:8080`。
   - Spring JDBC 查询实现继续限定在 `recon-batch.persistence`。
@@ -151,7 +151,7 @@
 
 ## Rollout And Rollback
 
-- Rollout: 先用 Vite proxy 联调；生产化时由 Nginx 托管 `dist` 并同源代理 `/recon`。鉴权上线前不得暴露公网。
+- Rollout: 已用 Compose 在本机部署，Nginx 托管 `dist` 并同源代理 `/recon`；8088/8180 均仅绑定 loopback。鉴权上线前不得暴露公网。
 - Rollback: 前端可独立下线；新增 GET 接口无数据写入，回退代码不需迁移。人工动作沿用原有 API，已提交的处置不可由前端回滚。
 
 ## Assumptions And Open Decisions
@@ -165,3 +165,4 @@
 - Status: approved
 - Approved scope: 前端管理台和相关接口；auth 鉴权最后实施。
 - Evidence: 用户消息“接入auth鉴权最后做，先做前端管理台和相关接口。前端设计按照我之前定的一些方案来实施”。
+- Release authorization: 用户消息“提交并推送当前改动。然后再docker重新构建部署”。

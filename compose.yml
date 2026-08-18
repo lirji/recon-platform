@@ -1,0 +1,49 @@
+name: recon-platform
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: recon-batch/Dockerfile
+    image: recon-platform-backend:local
+    container_name: recon-platform-backend
+    restart: unless-stopped
+    environment:
+      DB_URL: jdbc:h2:file:/data/recon;MODE=MySQL;DATABASE_TO_LOWER=TRUE
+      DB_USER: sa
+      DB_PASSWORD: ""
+    volumes:
+      - recon_data:/data
+    ports:
+      - "127.0.0.1:8180:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/recon/dashboard || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+
+  console:
+    build:
+      context: ./recon-console
+      dockerfile: Dockerfile
+    image: recon-platform-console:local
+    container_name: recon-platform-console
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      RECON_API_URL: http://backend:8080
+    ports:
+      - "127.0.0.1:8088:8088"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8088/healthz | grep -q ok"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+
+volumes:
+  recon_data:
+    name: recon-platform-data

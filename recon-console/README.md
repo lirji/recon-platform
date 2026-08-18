@@ -43,13 +43,17 @@ Playwright 使用 mock API，覆盖桌面 Chromium 和 Pixel 5 视口，不写�
 ## 容器
 
 ```bash
-docker build -t recon-console ./recon-console
-docker run --rm -p 8088:8088 \
-  -e RECON_API_URL=http://host.docker.internal:8080 \
-  recon-console
+# 推荐：在仓库根目录同时构建并启动前后端
+docker compose up -d --build --remove-orphans
+
+# 单独运行管理台时，RECON_API_URL 必须指向一个可访问的后端
+docker build -t recon-platform-console:local ./recon-console
+docker run --rm -p 127.0.0.1:8088:8088 \
+  -e RECON_API_URL=http://host.docker.internal:8180 \
+  recon-platform-console:local
 ```
 
-Nginx 托管 SPA，并把同源 `/recon` 反向代理到后端。`GET /healthz` 用于容器存活检查。
+Compose 将管理台发布到 `http://localhost:8088`，并把后端诊断端口绑定到 `127.0.0.1:8180`。Nginx 托管 SPA，并把同源 `/recon` 反向代理到 Compose 内部后端；`GET /healthz` 用于容器存活检查。默认具名卷 `recon-platform-data` 保存本地 H2 数据，`docker compose down` 或重新构建不会删除它；只有显式 `docker compose down -v` 才会清除数据。
 
 ## 当前安全边界
 

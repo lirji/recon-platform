@@ -42,7 +42,7 @@
 | offset 分页与多列 contains 搜索 | 大历史表可能出现慢查询 | 用生产基数做 `EXPLAIN`，按需补索引、搜索列或 keyset 分页 |
 | 主 chunk 体积告警 | 首次加载可能偏慢 | 路由级 lazy import，并继续拆分 Ant Design/页面模块 |
 | 真库查询投影未在本机执行 | MySQL/PostgreSQL 方言差异仍需环境证据 | 依赖 CI 真库作业；后续给控制台查询增加真库 smoke fixture |
-| Docker image 未在本机构建 | 容器产物仍需 CI/可用 daemon 验证 | 在镜像构建流水线执行 `docker build` 与 `/healthz` 冒烟 |
+| 镜像尚未发布到远程 registry | 当前仅能在本机 Compose 重建 | 后续发布流水线增加镜像签名、SBOM、registry push 与远程环境 smoke |
 
 ## Compatibility Result
 

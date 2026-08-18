@@ -1,0 +1,9 @@
+.git
+.github
+.idea
+.vscode
+docs
+recon-console
+**/target
+**/.DS_Store
+**/*.log

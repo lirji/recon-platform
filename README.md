@@ -107,6 +107,17 @@ pnpm dev
 
 前端完整命令、代理和容器说明见 `recon-console/README.md`。当前阶段**尚未接入 auth**，`operator` 仍由人工处置表单提交，只能用于本地或受控内网，不得直接暴露公网。
 
+### Docker 本地部署
+
+```bash
+docker compose up -d --build --remove-orphans
+docker compose ps
+curl http://localhost:8088/healthz
+curl http://localhost:8088/recon/dashboard
+```
+
+管理台暴露在 `http://localhost:8088`；后端仅绑定宿主机 `127.0.0.1:8180` 供诊断，管理台通过 Compose 内部网络访问后端。默认使用具名卷 `recon-platform-data` 持久化 H2 数据，重新构建不会删除该卷；真实生产环境仍应通过 `DB_URL`、`DB_USER`、`DB_PASSWORD` 切换到 MySQL/PostgreSQL。
+
 ## M6 CSV 数据源
 
 三方 Job 默认仍读取 DB。切换为 CSV 时设置：

@@ -21,6 +21,8 @@
 - 完成 Vitest/RTL 组件测试与 Playwright 桌面/Pixel 5 冒烟；页面导航、详情和核销链路通过。
 - 完成 Docker/Nginx 本地交付配置、双端 CI、根 README/CLAUDE 同步和交付审查文档。
 - 完成干净 Maven package、前端锁文件安装/单测/生产构建/浏览器测试，以及 Vite 代理到实际 Spring Boot 包的本地联调。
+- 已将功能提交 `b160f53` 推送到 `origin/main`。
+- 完成后端/前端多阶段镜像与项目级 Compose；两个容器在 loopback 端口部署为 healthy，Nginx 到后端代理通过。
 
 ## Changed Files
 
@@ -38,6 +40,8 @@
 - `recon-console/src/theme/`、`src/styles/` - 既定视觉 tokens、桌面/移动响应式样式。
 - `recon-console/e2e/console.smoke.spec.ts` - 桌面/移动真实浏览器冒烟。
 - `recon-console/Dockerfile`、`nginx.conf.template`、`README.md` - 前端容器和本地/生产同源代理说明。
+- `recon-batch/Dockerfile`、`.dockerignore`、`recon-console/.dockerignore` - 可复现、非 root 的双端镜像构建。
+- `compose.yml` - 后端/管理台编排、健康检查、loopback 端口和 H2 持久化卷。
 - `.github/workflows/ci.yml` - Java 21 后端与 Node 20/pnpm/Playwright 前端质量门禁。
 - `README.md`、`CLAUDE.md` - 模块、API、命令、金额语义和无鉴权边界。
 - `.gitignore` - 忽略 Node/前端构建和测试产物。
@@ -59,6 +63,9 @@
 | packaged backend + Vite proxy smoke | pass | `/recon/dashboard`、`/recon/runs` 和 SPA fallback 均返回预期结果 |
 | CI YAML / Nginx template / secret scan | pass | workflow 可解析；模板变量受限；未发现凭据、TODO 或调试输出 |
 | MySQL/PostgreSQL Testcontainers | skipped | 本机 Docker API 未被 Testcontainers 识别；保留在远程 CI 门禁 |
+| `docker compose up -d --build --remove-orphans` | pass | 前端/后端镜像均成功构建并启动 |
+| Docker health + HTTP smoke | pass | 两容器 healthy；8088 health、SPA、代理 dashboard 与 8180 直连均通过 |
+| runtime security/persistence | pass | 端口仅绑定 `127.0.0.1`；后端 uid 100 非 root；H2 文件写入 `recon-platform-data` |
 
 ## Decisions And Deviations
 
@@ -66,6 +73,7 @@
 - 不采用 Sites 托管运行时；当前交付是既有 Maven 仓库内的独立 SPA，且用户未授权部署。
 - 不为 UI 查询污染 `recon-core`；控制台查询投影留在组合根。
 - 新增管理台金额字段使用十进制字符串，避免 JavaScript Number 丢失 BIGINT 精度。
+- 宿主机 8080 属于 Apollo；本项目使用 loopback 8180/8088，容器内通过 `backend:8080` 通信，不停止或复用其他项目服务。
 
 ## Blockers And Residual Risks
 
@@ -73,7 +81,7 @@
 - auth 上线前只能用于受控本地/内网环境，不具备公网安全条件。
 - Ant Design 与应用主 chunk 仍超过 Vite 500 kB 告警阈值；不阻塞功能，后续可按路由继续拆包。
 - 历史数据量极大时，offset 分页和多列 contains 搜索需要结合生产数据补索引或改 keyset 分页。
-- 本机未执行真 MySQL/PostgreSQL 和最终前端 Docker image build；前者由 CI 保留验证，后者需要可用 Docker daemon/Node 基础镜像。
+- 本机 Testcontainers 1.19.8 与 Docker 29 API 协商失败，真 MySQL/PostgreSQL 测试继续由远程 CI 验证；Docker CLI/BuildKit 镜像构建和运行不受影响。
 
 ## Next Action
 
