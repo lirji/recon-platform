@@ -42,7 +42,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * M1 持久化层 H2 集成测试 (MySQL 兼容模式, 免 Docker): 覆盖 Flyway V1/V2 迁移 + 7 个 Jdbc*Store 的
+ * 持久化层 H2 集成测试 (MySQL 兼容模式, 免 Docker): 覆盖 Flyway 迁移、M1 基础存储与 M5 新增 Jdbc*Store 的
  * 幂等 / 乐观锁 / 分批删除 / 游标排序 语义。共享一个 Spring 上下文, {@link #cleanup()} 保证方法间隔离。
  */
 @SpringBootTest
@@ -154,6 +154,20 @@ class PersistenceStoreIntegrationTest {
         assertThat(runs.find("run-2").orElseThrow().revision()).isEqualTo(1);
     }
 
+    @Test
+    void latestRunRejectsOlderAsSoonAsNewerRunExists() {
+        runs.claim(run("run-old", "scn", "2026-08-17", 1, ReconRunStatus.COMPLETED, 0));
+        runs.claim(run("run-new", "scn", "2026-08-17", 2, ReconRunStatus.LOADING, 0));
+
+        // 新 Run 一进入执行，旧 Run 就不得再收敛，否则可能基于旧差异集误标 STALE。
+        assertThat(runs.isLatestRun("run-old", "scn", "2026-08-17")).isFalse();
+        assertThat(runs.isLatestRun("run-new", "scn", "2026-08-17")).isTrue();
+
+        jdbc.update("UPDATE recon_run SET status='COMPLETED' WHERE run_id='run-new'");
+        assertThat(runs.isLatestRun("run-old", "scn", "2026-08-17")).isFalse();
+        assertThat(runs.isLatestRun("run-new", "scn", "2026-08-17")).isTrue();
+    }
+
     // ---------- recon_record: batchInsert + cursor 升序 + 分批删除 ----------
 
     @Test
@@ -212,6 +226,26 @@ class PersistenceStoreIntegrationTest {
         List<Discrepancy> all = discrepancies.listByRun("run-x");
         assertThat(all).hasSize(1);
         assertThat(all.get(0).actualAmountMinor()).isEqualTo(300); // 值被覆盖为最后一次
+    }
+
+    @Test
+    void sameFingerprintInDifferentRunsGetsDistinctLedgerRows() {
+        String fingerprint = fp('r');
+
+        discrepancies.upsertByFingerprint(
+                disc("run-first", DiscrepancyType.AMOUNT_MISMATCH, fingerprint,
+                        "I-1", "I-1", "USD", 500, 400));
+        discrepancies.upsertByFingerprint(
+                disc("run-second", DiscrepancyType.AMOUNT_MISMATCH, fingerprint,
+                        "I-1", "I-1", "USD", 500, 400));
+
+        assertThat(discrepancies.listByRun("run-first")).singleElement()
+                .extracting(Discrepancy::fingerprint).isEqualTo(fingerprint);
+        assertThat(discrepancies.listByRun("run-second")).singleElement()
+                .extracting(Discrepancy::fingerprint).isEqualTo(fingerprint);
+        assertThat(jdbc.queryForList(
+                "SELECT discrepancy_id FROM discrepancy WHERE fingerprint=? ORDER BY run_id",
+                String.class, fingerprint)).hasSize(2).doesNotHaveDuplicates();
     }
 
     @Test
@@ -312,6 +346,11 @@ class PersistenceStoreIntegrationTest {
                 .isEqualTo("FAILED");
         assertThat(jdbc.queryForObject("SELECT attempt FROM alert_outbox WHERE id='a3'", Integer.class))
                 .isEqualTo(1);
+
+        // 并发中继可能出现“成功先落库、另一投递的失败结果后到”；迟到失败不得把 SENT 降回 FAILED。
+        outbox.markFailed("a1");
+        assertThat(jdbc.queryForObject("SELECT status FROM alert_outbox WHERE id='a1'", String.class))
+                .isEqualTo("SENT");
     }
 
     // ---------- recon_report saveAll + listByRun 往返 + 幂等覆盖 ----------
@@ -370,6 +409,27 @@ class PersistenceStoreIntegrationTest {
         // 正确 expected version 1 -> version 2
         dispositions.upsert(disp(DispositionStatus.REOPENED, 1));
         assertThat(dispositions.findByFingerprint(fp('a')).orElseThrow().version()).isEqualTo(2);
+    }
+
+    @Test
+    void convergenceUpdatesAreVersionGuarded() {
+        dispositions.upsert(disp(DispositionStatus.RESOLVED, 0));
+
+        // 陈旧 expected version 不得 re-link 或 STALE，保护并发人工结果。
+        assertThat(dispositions.relink(fp('a'), "run-new", 1)).isFalse();
+        assertThat(dispositions.markStale(fp('a'), "run-new", 1)).isFalse();
+        assertThat(dispositions.findByFingerprint(fp('a')).orElseThrow().status())
+                .isEqualTo(DispositionStatus.RESOLVED);
+
+        // 当前 version 可 re-link（不 bump），随后可条件置 STALE（bump）。
+        assertThat(dispositions.relink(fp('a'), "run-new", 0)).isTrue();
+        assertThat(dispositions.findByFingerprint(fp('a')).orElseThrow().lastSeenRunId())
+                .isEqualTo("run-new");
+        assertThat(dispositions.findByFingerprint(fp('a')).orElseThrow().version()).isZero();
+        assertThat(dispositions.markStale(fp('a'), "run-new", 0)).isTrue();
+        assertThat(dispositions.findByFingerprint(fp('a')).orElseThrow().status())
+                .isEqualTo(DispositionStatus.STALE);
+        assertThat(dispositions.findByFingerprint(fp('a')).orElseThrow().version()).isEqualTo(1);
     }
 
     private DiscrepancyDisposition disp(DispositionStatus status, int expectedVersion) {

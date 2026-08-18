@@ -89,6 +89,8 @@ class ReportTaskletImbalanceTest {
 
         @Override public void claim(ReconRun run) { throw new UnsupportedOperationException(); }
         @Override public Optional<ReconRun> find(String runId) { return Optional.of(current); }
+        @Override public void lockScenarioPeriod(String scenarioCode, String accountingPeriod) { }
+        @Override public boolean isLatestRun(String runId, String scenarioCode, String accountingPeriod) { return true; }
         @Override public void save(ReconRun run, long expectedRevision) throws ConflictException { this.current = run; }
     }
 

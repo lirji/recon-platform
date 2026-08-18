@@ -2,7 +2,6 @@ package com.lrj.recon.batch.persistence;
 
 import com.lrj.recon.core.application.port.out.ReconReportRepository;
 import com.lrj.recon.core.domain.model.ReconReport;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -18,9 +17,11 @@ import java.util.List;
 public class JdbcReconReportStore implements ReconReportRepository {
 
     private final JdbcTemplate jdbc;
+    private final JdbcDuplicateSafeInsert inserts;
 
-    public JdbcReconReportStore(JdbcTemplate jdbc) {
+    public JdbcReconReportStore(JdbcTemplate jdbc, JdbcDuplicateSafeInsert inserts) {
         this.jdbc = jdbc;
+        this.inserts = inserts;
     }
 
     private static final RowMapper<ReconReport> MAPPER = (rs, n) -> ReconReport.builder()
@@ -48,9 +49,7 @@ public class JdbcReconReportStore implements ReconReportRepository {
     public void saveAll(Iterable<ReconReport> reports) {
         for (ReconReport report : reports) {
             if (update(report) != 1) {
-                try {
-                    insert(report);
-                } catch (DuplicateKeyException concurrent) {
+                if (!inserts.execute(() -> insert(report))) {
                     update(report);
                 }
             }

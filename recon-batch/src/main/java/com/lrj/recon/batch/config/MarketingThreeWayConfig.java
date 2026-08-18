@@ -23,9 +23,12 @@ import com.lrj.recon.core.domain.model.ReconRecord;
 import com.lrj.recon.core.domain.model.Side;
 import com.lrj.recon.core.domain.service.EvaluatorFactory;
 import com.lrj.recon.core.spi.SourceAdapter;
+import com.lrj.recon.core.spi.SourceDescriptor;
 import com.lrj.recon.core.spi.SourceReadContext;
+import com.lrj.recon.handler.DiscrepancyHandlerChain;
 import com.lrj.recon.scenario.MarketingThreeWayScenario;
 import com.lrj.recon.scenario.SegmentDef;
+import com.lrj.recon.source.csv.CsvSourceAdapter;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.configuration.annotation.StepScope;
@@ -40,6 +43,7 @@ import org.springframework.core.task.TaskExecutor;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -87,9 +91,15 @@ public class MarketingThreeWayConfig {
                                    ConservationPartialRepository partials,
                                    JdbcRecordRejectStore rejectStore,
                                    SourceAdapter sourceAdapter,
+                                   @Value("${recon.m4.source-type:db}") String sourceType,
                                    @Value("${recon.m4.marketing-table:recon_src_marketing}") String marketingTable,
                                    @Value("${recon.m4.accounting-table:recon_src_accounting}") String accountingTable,
                                    @Value("${recon.m4.channel-table:recon_src_channel}") String channelTable,
+                                   @Value("${recon.m4.marketing-file:}") String marketingFile,
+                                   @Value("${recon.m4.accounting-file:}") String accountingFile,
+                                   @Value("${recon.m4.channel-file:}") String channelFile,
+                                   @Value("${recon.m4.csv.charset:UTF-8}") String csvCharset,
+                                   @Value("${recon.m4.csv.delimiter:,}") String csvDelimiter,
                                    // 修复 D: 两段判差规则改为可配 (默认 EXACT 保既有行为)。配 TOLERANCE + 阈值即让该段
                                    // 运行态经 EvaluatorFactory 命中 ToleranceEvaluator (之前硬编码 exact() 使容差成死代码)。
                                    @Value("${recon.scenario.mkt.seg1.evaluator-type:EXACT}") String seg1EvaluatorType,
@@ -105,13 +115,67 @@ public class MarketingThreeWayConfig {
         this.partials = partials;
         this.rejectStore = rejectStore;
         this.sourceAdapter = sourceAdapter;
-        this.scenario = MarketingThreeWayScenario.of(new MarketingThreeWayScenario.Config(
-                marketingTable, accountingTable, channelTable,
-                ruleFrom(seg1EvaluatorType, seg1AbsToleranceMinor, seg1RatioToleranceBps),
-                ruleFrom(seg2EvaluatorType, seg2AbsToleranceMinor, seg2RatioToleranceBps)));
+        DiscrepancyRule seg1Rule = ruleFrom(seg1EvaluatorType, seg1AbsToleranceMinor, seg1RatioToleranceBps);
+        DiscrepancyRule seg2Rule = ruleFrom(seg2EvaluatorType, seg2AbsToleranceMinor, seg2RatioToleranceBps);
+        this.scenario = scenario(sourceType, marketingTable, accountingTable, channelTable,
+                marketingFile, accountingFile, channelFile, csvCharset, csvDelimiter, seg1Rule, seg2Rule);
         this.segmentsById = Map.of(
                 scenario.seg1().segmentId(), scenario.seg1(),
                 scenario.seg2().segmentId(), scenario.seg2());
+    }
+
+    private static MarketingThreeWayScenario scenario(
+            String sourceType,
+            String marketingTable, String accountingTable, String channelTable,
+            String marketingFile, String accountingFile, String channelFile,
+            String csvCharset, String csvDelimiter,
+            DiscrepancyRule seg1Rule, DiscrepancyRule seg2Rule) {
+        String normalized = sourceType == null ? "" : sourceType.trim().toLowerCase(java.util.Locale.ROOT);
+        if ("db".equals(normalized)) {
+            return MarketingThreeWayScenario.of(new MarketingThreeWayScenario.Config(
+                    marketingTable, accountingTable, channelTable, seg1Rule, seg2Rule));
+        }
+        if (CsvSourceAdapter.SOURCE_TYPE.equals(normalized)) {
+            return MarketingThreeWayScenario.of(new MarketingThreeWayScenario.SourceConfig(
+                    csvSource(marketingFile, "issue_id", MarketingThreeWayScenario.FIELD_MARKETING_ISSUE_ID,
+                            "order_no", MarketingThreeWayScenario.FIELD_ORDER_NO, csvCharset, csvDelimiter),
+                    csvSource(accountingFile, "issue_id", MarketingThreeWayScenario.FIELD_MARKETING_ISSUE_ID,
+                            "order_no", MarketingThreeWayScenario.FIELD_ORDER_NO, csvCharset, csvDelimiter),
+                    csvSource(accountingFile, "channel_serial_no", MarketingThreeWayScenario.FIELD_CHANNEL_SERIAL_NO,
+                            "channel_serial_no", MarketingThreeWayScenario.FIELD_CHANNEL_SERIAL_NO,
+                            csvCharset, csvDelimiter),
+                    csvSource(channelFile, "channel_serial_no", MarketingThreeWayScenario.FIELD_CHANNEL_SERIAL_NO,
+                            "channel_serial_no", MarketingThreeWayScenario.FIELD_CHANNEL_SERIAL_NO,
+                            csvCharset, csvDelimiter),
+                    seg1Rule, seg2Rule));
+        }
+        throw new IllegalArgumentException("unknown recon.m4.source-type='" + sourceType
+                + "' (expected db|csv-file)");
+    }
+
+    private static SourceDescriptor csvSource(String path,
+                                              String matchKeyColumn, String matchKeyField,
+                                              String groupKeyColumn, String groupKeyField,
+                                              String charset, String delimiter) {
+        if (path == null || path.isBlank()) {
+            throw new IllegalArgumentException("recon.m4.*-file must not be blank when source-type=csv-file");
+        }
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("path", path.trim());
+        params.put("charset", charset);
+        params.put("delimiter", delimiter);
+        params.put("idColumn", "id");
+        params.put("matchKeyColumn", matchKeyColumn);
+        params.put("matchKeyField", matchKeyField);
+        params.put("groupKeyColumn", groupKeyColumn);
+        params.put("groupKeyField", groupKeyField);
+        params.put("currencyColumn", "ccy");
+        params.put("amountColumn", "amount_minor");
+        params.put("entryTypeColumn", "entry_type");
+        params.put("bizStatusColumn", "biz_status");
+        params.put("bizTimeColumn", "biz_time");
+        params.put("postingTimeColumn", "posting_time");
+        return new SourceDescriptor(CsvSourceAdapter.SOURCE_TYPE, params);
     }
 
     /**
@@ -140,7 +204,7 @@ public class MarketingThreeWayConfig {
     public Job marketingThreeWayJob(Step prepareRunStep,
                                     Step seg1LoadStep, Step seg1MatchEvaluateStep,
                                     Step seg2LoadStep, Step seg2MatchEvaluateStep,
-                                    Step reportStep) {
+                                    Step reportStep, Step convergenceStep, Step alertRelayStep) {
         return new JobBuilder("marketingThreeWayJob", jobRepository)
                 .start(prepareRunStep)
                 .next(seg1LoadStep)
@@ -148,6 +212,8 @@ public class MarketingThreeWayConfig {
                 .next(seg2LoadStep)
                 .next(seg2MatchEvaluateStep)
                 .next(reportStep)
+                .next(convergenceStep)   // M5 A1 收敛 (复用 BatchConfig 的 run 级共享步)
+                .next(alertRelayStep)     // M5 Step4 告警中继 (复用 BatchConfig 的 run 级共享步)
                 .build();
     }
 
@@ -333,6 +399,7 @@ public class MarketingThreeWayConfig {
     @Bean
     @StepScope
     public MatchEvaluateWriter m4MatchEvaluateWriter(
+            DiscrepancyHandlerChain discrepancyHandlerChain,
             @Value("#{stepExecutionContext['runId']}") String runId,
             @Value("#{stepExecutionContext['segmentId']}") String segmentId,
             @Value("#{stepExecutionContext['bucket']}") Integer bucket,
@@ -340,7 +407,8 @@ public class MarketingThreeWayConfig {
             @Value("#{stepExecutionContext['subFanout']}") Integer subFanout,
             ObjectProvider<PartitionFailureGate> failureGate) {
         PartitionFailureGate gate = failureGate.getIfAvailable(() -> b -> { });
-        return new MatchEvaluateWriter(discrepancies, partials, gate, runId, segmentId, bucket, subIndex, subFanout);
+        return new MatchEvaluateWriter(discrepancies, partials, discrepancyHandlerChain, gate,
+                runId, segmentId, bucket, subIndex, subFanout);
     }
 
     private SegmentDef segmentDef(String segmentId) {

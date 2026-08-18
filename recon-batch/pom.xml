@@ -13,8 +13,7 @@
 
     <artifactId>recon-batch</artifactId>
     <name>recon-batch</name>
-    <description>Spring Boot 组合根: JDBC 持久化适配器 (Jdbc*Store 实现 application.port.out) + Flyway 迁移。
-        M1 本轮不放 Spring Batch Job (归 M2); V2 仅预建 Batch 官方元数据表。</description>
+    <description>Spring Boot 组合根: DB/CSV 源路由、Spring Batch 编排、JDBC/Flyway、REST、调度与 outbox 中继。</description>
 
     <dependencies>
         <dependency>
@@ -25,15 +24,29 @@
             <groupId>com.lrj.recon</groupId>
             <artifactId>recon-source-db</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.lrj.recon</groupId>
+            <artifactId>recon-source-csv</artifactId>
+        </dependency>
         <!-- M4: 营销三方两段桥接场景装配 (SpineBridgeKeyExtractor + MarketingThreeWayScenario). -->
         <dependency>
             <groupId>com.lrj.recon</groupId>
             <artifactId>recon-scenario</artifactId>
         </dependency>
+        <!-- M5: 处理链 (LedgerHandler / ReversalSuggestionHandler / AlertHandler / FlowableTicketHandler). -->
+        <dependency>
+            <groupId>com.lrj.recon</groupId>
+            <artifactId>recon-handler</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <!-- M5: REST 接口 (DiscrepancyController 发起 Run / 人工核销 / 报表查询). -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
         <!-- M2: 全工作区首次引入 Spring Batch (starter 带 spring-batch-core + JDBC).
              Boot batch autoconfig 提供 JobRepository/JobLauncher (元数据表 Flyway V2 建); 不用 @EnableBatchProcessing. -->

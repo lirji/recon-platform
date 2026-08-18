@@ -2,7 +2,6 @@ package com.lrj.recon.batch.persistence;
 
 import com.lrj.recon.core.application.port.out.ConservationPartialRepository;
 import com.lrj.recon.core.domain.model.ConservationPartial;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -14,17 +13,19 @@ import java.util.List;
  * {@link ConservationPartialRepository} 的 JDBC 实现 (M3 单遍守恒局部结果 {@code recon_report_partial})。
  *
  * <p>幂等 upsert 走可移植 <b>update-else-insert</b> (借鉴既有 {@code JdbcReconReportStore} 范式):
- * 先按 {@code uk_partial(run_id, segment_id, bucket, currency)} 条件 UPDATE, 未命中再 INSERT; 并发撞唯一键
- * ({@link DuplicateKeyException}) 回退再 UPDATE。partition 每 chunk 落"累计到当前"的快照 → 完成即完整局部结果;
+ * 先按 {@code uk_partial(run_id, segment_id, bucket, currency)} 条件 UPDATE, 未命中再经 savepoint INSERT;
+ * 并发撞唯一键安全回退再 UPDATE。partition 每 chunk 落"累计到当前"的快照 → 完成即完整局部结果;
  * 断点/重放同键覆盖, 无重复行。
  */
 @Repository
 public class JdbcConservationPartialStore implements ConservationPartialRepository {
 
     private final JdbcTemplate jdbc;
+    private final JdbcDuplicateSafeInsert inserts;
 
-    public JdbcConservationPartialStore(JdbcTemplate jdbc) {
+    public JdbcConservationPartialStore(JdbcTemplate jdbc, JdbcDuplicateSafeInsert inserts) {
         this.jdbc = jdbc;
+        this.inserts = inserts;
     }
 
     private static final RowMapper<ConservationPartial> MAPPER = (rs, n) -> ConservationPartial.builder()
@@ -54,9 +55,7 @@ public class JdbcConservationPartialStore implements ConservationPartialReposito
     public void savePartials(Iterable<ConservationPartial> partials) {
         for (ConservationPartial p : partials) {
             if (update(p) != 1) {
-                try {
-                    insert(p);
-                } catch (DuplicateKeyException concurrent) {
+                if (!inserts.execute(() -> insert(p))) {
                     update(p);
                 }
             }

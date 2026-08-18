@@ -77,6 +77,28 @@ public class JdbcReconRunStore implements ReconRunRepository {
     }
 
     @Override
+    public void lockScenarioPeriod(String scenarioCode, String accountingPeriod) {
+        // ORDER BY 保证并发收敛按相同行顺序加锁，避免死锁；结果只用于持有行锁至外层收敛事务提交。
+        jdbc.queryForList("""
+                SELECT run_id FROM recon_run
+                 WHERE scenario_code = ? AND accounting_period = ?
+                 ORDER BY sequence_no
+                 FOR UPDATE
+                """, String.class, scenarioCode, accountingPeriod);
+    }
+
+    @Override
+    public boolean isLatestRun(String runId, String scenarioCode, String accountingPeriod) {
+        List<String> latest = jdbc.queryForList("""
+                SELECT run_id FROM recon_run
+                 WHERE scenario_code = ? AND accounting_period = ?
+                 ORDER BY sequence_no DESC
+                 LIMIT 1
+                """, String.class, scenarioCode, accountingPeriod);
+        return !latest.isEmpty() && latest.get(0).equals(runId);
+    }
+
+    @Override
     public void save(ReconRun run, long expectedRevision) {
         int updated = jdbc.update("""
                 UPDATE recon_run

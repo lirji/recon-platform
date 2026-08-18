@@ -43,9 +43,9 @@ public class JdbcDiscrepancyDispositionStore implements DiscrepancyDispositionRe
 
     @Override
     public void upsert(DiscrepancyDisposition d) {
-        try {
-            insert(d);
-        } catch (DuplicateKeyException exists) {
+        // 正常更新不得靠“先撞唯一键再继续事务”：PostgreSQL 唯一键异常会使当前事务 aborted。
+        // 先判存在并走 version 条件更新；并发首插撞唯一键则翻译为 Conflict 并让外层事务回滚。
+        if (findByFingerprint(d.fingerprint()).isPresent()) {
             int updated = jdbc.update("""
                     UPDATE discrepancy_disposition
                        SET status = ?, operator = ?, note = ?, last_seen_run_id = ?,
@@ -56,8 +56,15 @@ public class JdbcDiscrepancyDispositionStore implements DiscrepancyDispositionRe
                     SqlTimes.ts(Instant.now()), d.fingerprint(), d.version());
             if (updated != 1) {
                 throw new ConflictException("disposition optimistic lock failed for fingerprint "
-                        + d.fingerprint() + " at version " + d.version(), exists);
+                        + d.fingerprint() + " at version " + d.version());
             }
+            return;
+        }
+        try {
+            insert(d);
+        } catch (DuplicateKeyException concurrentInsert) {
+            throw new ConflictException("disposition concurrently created for fingerprint " + d.fingerprint(),
+                    concurrentInsert);
         }
     }
 
@@ -78,5 +85,33 @@ public class JdbcDiscrepancyDispositionStore implements DiscrepancyDispositionRe
         List<DiscrepancyDisposition> rows = jdbc.query(
                 "SELECT * FROM discrepancy_disposition WHERE fingerprint = ?", MAPPER, fingerprint);
         return rows.stream().findFirst();
+    }
+
+    @Override
+    public List<DiscrepancyDisposition> findLiveByScenarioPeriod(String scenarioCode, String accountingPeriod) {
+        return jdbc.query("""
+                SELECT * FROM discrepancy_disposition
+                 WHERE scenario_code = ? AND accounting_period = ? AND status <> 'STALE'
+                """, MAPPER, scenarioCode, accountingPeriod);
+    }
+
+    @Override
+    public boolean relink(String fingerprint, String lastSeenRunId, int expectedVersion) {
+        // A1①: 保持状态与 version 不变, 仅刷新 last_seen_run_id/updated_at (不与人工乐观锁竞争)。
+        return jdbc.update("""
+                UPDATE discrepancy_disposition
+                   SET last_seen_run_id = ?, updated_at = ?
+                 WHERE fingerprint = ? AND version = ? AND status <> 'STALE'
+                """, lastSeenRunId, SqlTimes.ts(Instant.now()), fingerprint, expectedVersion) == 1;
+    }
+
+    @Override
+    public boolean markStale(String fingerprint, String lastSeenRunId, int expectedVersion) {
+        // A1②/③: 置 STALE 自动关闭 + bump version; 已 STALE 的不重复处理 (幂等)。
+        return jdbc.update("""
+                UPDATE discrepancy_disposition
+                   SET status = 'STALE', last_seen_run_id = ?, version = version + 1, updated_at = ?
+                 WHERE fingerprint = ? AND version = ? AND status <> 'STALE'
+                """, lastSeenRunId, SqlTimes.ts(Instant.now()), fingerprint, expectedVersion) == 1;
     }
 }

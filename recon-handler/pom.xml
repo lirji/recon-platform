@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.lrj.recon</groupId>
+        <artifactId>recon-platform</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>recon-handler</artifactId>
+    <name>recon-handler</name>
+    <description>处理链 (M5): DiscrepancyHandler 实现 (LedgerHandler / ReversalSuggestionHandler / AlertHandler /
+        FlowableTicketHandler) + DiscrepancyHandlerChain。纯 Java 零框架, 只依赖 recon-core (SPI + 端口 + 领域模型);
+        外部副作用 (告警) 只写 outbox 不直发, 冲正只生成建议无资金动作。</description>
+
+    <!--
+      外圈处理链: 只依赖 recon-core。不引入 Spring / Batch / JDBC / Drools / CSV / Flowable ——
+      由 ArchitectureTest 门禁 (与 recon-core / recon-scenario 纯度看齐)。Flowable 工单阶段二才接, MVP 仅 no-op 占位。
+    -->
+    <dependencies>
+        <dependency>
+            <groupId>com.lrj.recon</groupId>
+            <artifactId>recon-core</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

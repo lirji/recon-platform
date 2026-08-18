@@ -1,6 +1,6 @@
 # 已知问题 / 局限（Known Issues）
 
-> 记录当前阶段（M0–M3）经对抗式 review 确认、但**有意暂不修**或**降级为窄边角**的已知问题，避免"看似干净"的误导。每条注明触发条件、影响、缓解与后续计划。均为 low 级或 off-by-default 场景，不阻塞 MVP。
+> 记录当前阶段（M0–M6）经对抗式 review 确认、但**有意暂不修**或**降级为窄边角**的已知问题，避免"看似干净"的误导。每条注明触发条件、影响、缓解与后续计划。均为 low 级或 off-by-default 场景，不阻塞本地 MVP 验收。
 
 ## KI-1 · sub-bucket 二级分桶 + restart 中途改配置 → 局部结果静默错算
 
@@ -8,7 +8,7 @@
 - **影响**：`prepareRunStep`（含 `cleanBounded` 清 `recon_report_partial`）在 restart 时被 Spring Batch 跳过（已 COMPLETED），新旧分片形状/fanout 的局部结果混存，`ConservationMerger` 重复累计或漏算 → 报表金额错，但左右口径同比例膨胀使 `residual` 仍 ≡0，**骗过守恒门禁**、Run 被标 `COMPLETED/balanced`。
 - **已缓解到**：整桶↔sub-bucket 的**单次形状翻转**已由 `MatchEvaluateWriter` 的 worker 级 stale-partial 清理修复（保留 partition-resume 语义）；上述残留仅剩 **fanout 数值变**与**多次连续翻转**两个更窄子情形。
 - **规避（运维约束）**：**failed Run 的 restart 前不要修改 `recon.skew.*` 配置**；sub-bucket 默认关，绝大多数部署不受影响。
-- **根治计划（M5/加固）**：把 skew 配置指纹（enabled+fanout）随 Run 持久化，restart 时若配置变则 **fail-fast** 拒绝（而非静默错算）；或把 shape/epoch 编入 partial 主键 + restart 做 run 级 partial 全清。
+- **根治计划（后续加固）**：把 skew 配置指纹（enabled+fanout）随 Run 持久化，restart 时若配置变则 **fail-fast** 拒绝（而非静默错算）；或把 shape/epoch 编入 partial 主键 + restart 做 run 级 partial 全清。
 
 ## KI-2 · per-bucket 游标为可移植 null 序牺牲了纯索引产序（轻微 filesort）
 
@@ -23,7 +23,7 @@
 
 ## KI-4 · 真实 MySQL/PG 端到端仅在有 Docker 时验证
 
-- 集成测试默认 H2（免 Docker）。collation 真库测试 `CollationRealDbIT`（Testcontainers MySQL8 + PG）在**无 Docker 时优雅跳过**（`DockerClientFactory.isDockerAvailable()` 守卫），`./mvnw test` 保持绿但那 2 条不真跑。
+- 集成测试默认 H2（免 Docker）。collation 真库测试 `CollationRealDbIT`（Testcontainers MySQL8 + PG）在**无 Docker 时优雅跳过**（`DockerClientFactory.isDockerAvailable()` 守卫）；GitHub CI 已增加显式真库步骤，本地 `./mvnw test` 不自动包含 `*IT`。
 - V3 collation ALTER + 索引重建、`fetchSize=Integer.MIN_VALUE` 真流式等**真库行为**建议在有 Docker/真实 MySQL8+PG 的环境跑一遍 `CollationRealDbIT` 确认。
 
 ## KI-5 · REPORT_IMBALANCE 为构造性护栏（正常路径不可达）
@@ -37,3 +37,9 @@
 - **影响**：两侧 `bucket = floorMod(hash(group_key), N)` 落**不同桶** → sort-merge join 只在单桶内跑 → 两侧永不相遇 → 左侧成 `LEFT_ONLY`（`MISSING`/`BRIDGE_BROKEN`）、右侧成 `RIGHT_ONLY`（`EXTRA`/`BRIDGE_BROKEN`），即**假 BRIDGE_BROKEN + 假 EXTRA**。因左右额分别独立入各自口径，双向守恒仍 `residual≡0` **balanced**，**门禁抓不到**（守恒只证桶路由/溢出，不证分类判定，见 §8 口径澄清）。
 - **规避（数据质量约束）**：上游保证同一 `match_key` 只属唯一 `group_key`（营销发放ID→唯一发放单号）；MVP 两段的真实数据满足此约束。可选 **opt-in 离线/装配期抽样预校验**：`Bucketing.assertRefineFunction(matchKey, groupKey, witnessed)` 逐条累计 `match→group` 映射，同键映射到不同 group 即 fail-fast——因需跨记录 `witnessed` 状态，**只**用于抽样/有界校验或单测，**不**进千万级热路径。
 - **根治计划（后续加固）**：独立**预校验作业**（对当日源表做全量/抽样 `match→group` 函数性扫描，违规先拦；不占对账热路径）；或在 join 阶段做**跨桶探测**（同 `match_key` 命中多桶即告警），把假阳性从"守恒抓不到"升级为"显式可发现"。
+
+## KI-7 · CSV 语法恢复、reject 峰值与行号身份边界
+
+- **不可恢复语法/编码错误**：字段语义错误可逐条 reject 后继续；但未闭合引号、截断文件或非法字节会让流式解析器失去可靠记录边界。适配器会记录当前物理行 reject 并停止该文件，避免猜测边界后错位入账。上游应先做文件完整性/校验和检查。
+- **reject 峰值内存**：现有 `RecordCursor` SPI 以列表返回 reject；极端全坏文件会在单侧游标关闭前累计 reject 元数据。正常文件不 materialize 记录，仍是流式；大批坏行应通过上游质量门禁拦截，后续可把 SPI 改为 reject sink/流式回调。
+- **行号身份漂移**：null match_key 的 fingerprint 以 `raw_ref=file:line` 鉴别。同一文件若在原行之前插行，重跑时该类记录 fingerprint 会变化，旧人工处置按 A1 进入 STALE 而非 re-link。生产应把输入文件视为不可变快照；若业务有稳定源主键，后续可把它加入文件血缘身份。

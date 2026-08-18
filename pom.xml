@@ -21,20 +21,20 @@
     <name>recon-platform</name>
     <description>通用自动对账系统 (六边形分层, recon-core 纯领域内核)</description>
 
-    <!-- 阶段一 MVP:
-         M0 = recon-core (纯领域内核垂直切片);
-         M1 = recon-source-db (DB keyset 源适配器) + recon-batch (组合根: JDBC 持久化 + Flyway, 本轮不放 Batch Job)。
-         其余外圈模块 (source-csv/rule/handler/scenario) 归 M2+。 -->
+    <!-- 阶段一 MVP M0-M6 完整模块：纯领域内核 + DB/CSV 数据源 + 场景/处理链外圈 + Batch 组合根。 -->
     <modules>
         <module>recon-core</module>
         <module>recon-source-db</module>
+        <module>recon-source-csv</module>
         <module>recon-scenario</module>
+        <module>recon-handler</module>
         <module>recon-batch</module>
     </modules>
 
     <properties>
         <java.version>21</java.version>
         <archunit.version>1.3.0</archunit.version>
+        <commons-csv.version>1.14.1</commons-csv.version>
     </properties>
 
     <dependencyManagement>
@@ -58,7 +58,22 @@
             </dependency>
             <dependency>
                 <groupId>com.lrj.recon</groupId>
+                <artifactId>recon-source-csv</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-csv</artifactId>
+                <version>${commons-csv.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.lrj.recon</groupId>
                 <artifactId>recon-scenario</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.lrj.recon</groupId>
+                <artifactId>recon-handler</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>

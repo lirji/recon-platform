@@ -1,7 +1,10 @@
 package com.lrj.recon.batch.config;
 
+import com.lrj.recon.batch.alert.AlertRelayService;
+import com.lrj.recon.batch.job.AlertRelayTasklet;
 import com.lrj.recon.batch.job.BucketGroupReader;
 import com.lrj.recon.batch.job.BucketPartitioner;
+import com.lrj.recon.batch.job.DispositionConvergenceTasklet;
 import com.lrj.recon.batch.job.EvaluateProcessor;
 import com.lrj.recon.batch.job.EvaluatedGroup;
 import com.lrj.recon.batch.job.MatchEvaluateWriter;
@@ -16,6 +19,8 @@ import com.lrj.recon.batch.job.StagingRecordWriter;
 import com.lrj.recon.batch.job.StandardizeProcessor;
 import com.lrj.recon.batch.job.StepFailureGate;
 import com.lrj.recon.batch.persistence.JdbcRecordRejectStore;
+import com.lrj.recon.batch.service.DispositionConvergenceService;
+import com.lrj.recon.handler.DiscrepancyHandlerChain;
 import com.lrj.recon.core.application.port.out.ConservationPartialRepository;
 import com.lrj.recon.core.application.port.out.DiscrepancyRepository;
 import com.lrj.recon.core.application.port.out.ReconRecordRepository;
@@ -110,12 +115,15 @@ public class BatchConfig {
     // ==================== Job ====================
 
     @Bean
-    public Job reconciliationJob(Step prepareRunStep, Step loadStep, Step matchEvaluateStep, Step reportStep) {
+    public Job reconciliationJob(Step prepareRunStep, Step loadStep, Step matchEvaluateStep, Step reportStep,
+                                 Step convergenceStep, Step alertRelayStep) {
         return new JobBuilder("reconciliationJob", jobRepository)
                 .start(prepareRunStep)
                 .next(loadStep)
                 .next(matchEvaluateStep)
                 .next(reportStep)
+                .next(convergenceStep)   // M5 A1 收敛 (re-link / STALE), 在报表后、告警前
+                .next(alertRelayStep)    // M5 Step4 告警中继 (批后, 出 chunk 事务)
                 .build();
     }
 
@@ -289,6 +297,7 @@ public class BatchConfig {
     @Bean
     @StepScope
     public MatchEvaluateWriter matchEvaluateWriter(
+            DiscrepancyHandlerChain discrepancyHandlerChain,
             @Value("#{stepExecutionContext['runId']}") String runId,
             @Value("#{stepExecutionContext['segmentId']}") String segmentId,
             @Value("#{stepExecutionContext['bucket']}") Integer bucket,
@@ -296,7 +305,8 @@ public class BatchConfig {
             @Value("#{stepExecutionContext['subFanout']}") Integer subFanout,
             ObjectProvider<PartitionFailureGate> failureGate) {
         PartitionFailureGate gate = failureGate.getIfAvailable(() -> b -> { });
-        return new MatchEvaluateWriter(discrepancies, partials, gate, runId, segmentId, bucket, subIndex, subFanout);
+        return new MatchEvaluateWriter(discrepancies, partials, discrepancyHandlerChain, gate,
+                runId, segmentId, bucket, subIndex, subFanout);
     }
 
     // ==================== Step3 reportStep (汇总局部守恒) ====================
@@ -313,6 +323,36 @@ public class BatchConfig {
     public ReportTasklet reportTasklet(ReconJobContext ctx, ObjectProvider<StepFailureGate> failureGate) {
         StepFailureGate gate = failureGate.getIfAvailable(() -> runId -> { });
         return new ReportTasklet(runs, reports, partials, new ConservationMerger(), ctx, gate);
+    }
+
+    // ==================== M5 收敛 + 告警中继 (run 级共享步, marketingThreeWayJob 复用) ====================
+
+    /** A1 重跑收敛步 (报表后): re-link 保持 / 标 STALE 自动关闭。单段与三方 Job 复用同一 bean。 */
+    @Bean
+    public Step convergenceStep(DispositionConvergenceTasklet convergenceTasklet) {
+        return new StepBuilder("convergenceStep", jobRepository)
+                .tasklet(convergenceTasklet, txManager)
+                .build();
+    }
+
+    @Bean
+    @StepScope
+    public DispositionConvergenceTasklet convergenceTasklet(ReconJobContext ctx,
+                                                            DispositionConvergenceService convergenceService) {
+        return new DispositionConvergenceTasklet(convergenceService, ctx);
+    }
+
+    /** Step4 告警中继步 (批后): 投递 outbox PENDING/补投 FAILED, 出 chunk 事务。单段与三方 Job 复用同一 bean。 */
+    @Bean
+    public Step alertRelayStep(AlertRelayTasklet alertRelayTasklet) {
+        return new StepBuilder("alertRelayStep", jobRepository)
+                .tasklet(alertRelayTasklet, txManager)
+                .build();
+    }
+
+    @Bean
+    public AlertRelayTasklet alertRelayTasklet(AlertRelayService alertRelayService) {
+        return new AlertRelayTasklet(alertRelayService);
     }
 
     // ==================== 运行时上下文 (@JobScope, 从 jobParameters 惰性解出) ====================

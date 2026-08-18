@@ -70,6 +70,29 @@ public final class MarketingThreeWayScenario {
     public static MarketingThreeWayScenario of(Config cfg) {
         Objects.requireNonNull(cfg, "cfg");
 
+        return of(new SourceConfig(
+                // SEG1 营销侧: match=issue_id, group=order_no (放宽 refine)
+                marketingLikeDescriptor(cfg.marketingTable(), "issue_id", FIELD_MARKETING_ISSUE_ID,
+                        "order_no", FIELD_ORDER_NO),
+                // SEG1 账务侧 (spine 投 issue_id): match=issue_id, group=order_no
+                marketingLikeDescriptor(cfg.accountingTable(), "issue_id", FIELD_MARKETING_ISSUE_ID,
+                        "order_no", FIELD_ORDER_NO),
+                // SEG2 账务侧 (spine 投 channel_serial_no): match=group=channel_serial_no
+                marketingLikeDescriptor(cfg.accountingTable(), "channel_serial_no", FIELD_CHANNEL_SERIAL_NO,
+                        "channel_serial_no", FIELD_CHANNEL_SERIAL_NO),
+                // SEG2 渠道侧: match=group=channel_serial_no
+                marketingLikeDescriptor(cfg.channelTable(), "channel_serial_no", FIELD_CHANNEL_SERIAL_NO,
+                        "channel_serial_no", FIELD_CHANNEL_SERIAL_NO),
+                cfg.seg1Rule(), cfg.seg2Rule()));
+    }
+
+    /**
+     * 用四个已投影的数据源描述符装配场景。数据源格式由组合根决定，因此 scenario 模块无需依赖 DB/CSV 实现；
+     * 账务 spine 显式传入两份描述符，以便 SEG1/SEG2 从同一源投影不同键列。
+     */
+    public static MarketingThreeWayScenario of(SourceConfig cfg) {
+        Objects.requireNonNull(cfg, "cfg");
+
         // 装配期 refine 校验在 KeySpec 构造内 (字段非空 = 可分桶): SEG1 refine (issue→order), SEG2 identity (serial)。
         SpineBridgeKeyExtractor extractor = new SpineBridgeKeyExtractor(List.of(
                 new SpineBridgeKeyExtractor.KeySpec(SEG1, FIELD_MARKETING_ISSUE_ID, FIELD_ORDER_NO),
@@ -80,12 +103,7 @@ public final class MarketingThreeWayScenario {
                 SpineBridgeKeyExtractor.ID, GroupSumMatchStrategy.STRATEGY_ID,
                 evaluatorId(cfg.seg1Rule()), List.of());
         SegmentDef seg1 = new SegmentDef(seg1Spec,
-                // SEG1 营销侧: match=issue_id, group=order_no (放宽 refine)
-                marketingLikeDescriptor(cfg.marketingTable(), "issue_id", FIELD_MARKETING_ISSUE_ID,
-                        "order_no", FIELD_ORDER_NO),
-                // SEG1 账务侧 (spine 投 issue_id): match=issue_id, group=order_no
-                marketingLikeDescriptor(cfg.accountingTable(), "issue_id", FIELD_MARKETING_ISSUE_ID,
-                        "order_no", FIELD_ORDER_NO),
+                cfg.marketingSeg1(), cfg.accountingSeg1(),
                 cfg.seg1Rule());
 
         SegmentSpec seg2Spec = new SegmentSpec(
@@ -93,12 +111,7 @@ public final class MarketingThreeWayScenario {
                 SpineBridgeKeyExtractor.ID, GroupSumMatchStrategy.STRATEGY_ID,
                 evaluatorId(cfg.seg2Rule()), List.of());
         SegmentDef seg2 = new SegmentDef(seg2Spec,
-                // SEG2 账务侧 (spine 投 channel_serial_no): match=group=channel_serial_no (IDENTITY)
-                marketingLikeDescriptor(cfg.accountingTable(), "channel_serial_no", FIELD_CHANNEL_SERIAL_NO,
-                        "channel_serial_no", FIELD_CHANNEL_SERIAL_NO),
-                // SEG2 渠道侧: match=group=channel_serial_no
-                marketingLikeDescriptor(cfg.channelTable(), "channel_serial_no", FIELD_CHANNEL_SERIAL_NO,
-                        "channel_serial_no", FIELD_CHANNEL_SERIAL_NO),
+                cfg.accountingSeg2(), cfg.channelSeg2(),
                 cfg.seg2Rule());
 
         return new MarketingThreeWayScenario(List.of(seg1, seg2), extractor);
@@ -160,6 +173,32 @@ public final class MarketingThreeWayScenario {
         private static void requireTable(String name, String value) {
             if (value == null || value.isBlank()) {
                 throw new IllegalArgumentException("MarketingThreeWayScenario.Config." + name + " must not be blank");
+            }
+        }
+    }
+
+    /** 格式无关的数据源投影配置；由 recon-batch 组合根构造 DB 或 CSV 描述符。 */
+    public record SourceConfig(
+            SourceDescriptor marketingSeg1,
+            SourceDescriptor accountingSeg1,
+            SourceDescriptor accountingSeg2,
+            SourceDescriptor channelSeg2,
+            DiscrepancyRule seg1Rule,
+            DiscrepancyRule seg2Rule) {
+
+        public SourceConfig {
+            requireDescriptor("marketingSeg1", marketingSeg1);
+            requireDescriptor("accountingSeg1", accountingSeg1);
+            requireDescriptor("accountingSeg2", accountingSeg2);
+            requireDescriptor("channelSeg2", channelSeg2);
+            seg1Rule = seg1Rule == null ? DiscrepancyRule.exact() : seg1Rule;
+            seg2Rule = seg2Rule == null ? DiscrepancyRule.exact() : seg2Rule;
+        }
+
+        private static void requireDescriptor(String name, SourceDescriptor descriptor) {
+            if (descriptor == null || descriptor.sourceType() == null || descriptor.sourceType().isBlank()) {
+                throw new IllegalArgumentException("MarketingThreeWayScenario.SourceConfig." + name
+                        + " must have a sourceType");
             }
         }
     }

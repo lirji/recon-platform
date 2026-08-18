@@ -4,6 +4,7 @@ import com.lrj.recon.core.application.port.out.ConservationPartialRepository;
 import com.lrj.recon.core.application.port.out.DiscrepancyRepository;
 import com.lrj.recon.core.application.port.out.ReconRecordRepository;
 import com.lrj.recon.core.application.port.out.ReconReportRepository;
+import com.lrj.recon.batch.persistence.JdbcRecordRejectStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -15,7 +16,8 @@ import java.util.function.IntSupplier;
 /**
  * 重跑清理 (修补③, ADR-7): 分批删除机器结果, <b>每批独立事务</b>, 避免千万级大事务长锁。
  *
- * <p><b>只清机器产物</b>: {@code recon_record} (staging) + {@code discrepancy(machine_result=1)}
+ * <p><b>只清机器产物</b>: {@code recon_record} (staging) + {@code recon_record_reject} (标准化拒绝行)
+ * + {@code discrepancy(machine_result=1)}
  * + {@code recon_report_partial} (M3 局部守恒结果) + {@code recon_report} (勾稽报表)。<b>绝不触碰</b>
  * {@code discrepancy_disposition} / {@code reversal_suggestion} / {@code discrepancy_action} (人工痕迹永不被重跑删除)。
  * 局部结果幂等键含 bucket, 重跑桶集若变化, 旧桶残留会污染汇总, 故必须一并分批清 (再由 Step2 重写)。
@@ -29,6 +31,7 @@ import java.util.function.IntSupplier;
 public class ReconRerunService {
 
     private final ReconRecordRepository records;
+    private final JdbcRecordRejectStore rejects;
     private final DiscrepancyRepository discrepancies;
     private final ConservationPartialRepository partials;
     private final ReconReportRepository reports;
@@ -36,12 +39,14 @@ public class ReconRerunService {
     private final int batchLimit;
 
     public ReconRerunService(ReconRecordRepository records,
+                             JdbcRecordRejectStore rejects,
                              DiscrepancyRepository discrepancies,
                              ConservationPartialRepository partials,
                              ReconReportRepository reports,
                              PlatformTransactionManager txManager,
                              @Value("${recon.rerun.batch-limit:10000}") int batchLimit) {
         this.records = records;
+        this.rejects = rejects;
         this.discrepancies = discrepancies;
         this.partials = partials;
         this.reports = reports;
@@ -50,9 +55,10 @@ public class ReconRerunService {
         this.batchLimit = batchLimit;
     }
 
-    /** 分批清空某 Run 的 staging、机器判差、局部守恒结果与勾稽报表 (各自独立事务循环至 0)。人工表零触碰。 */
+    /** 分批清空某 Run 的 staging/reject、机器判差、局部守恒结果与勾稽报表。人工表零触碰。 */
     public void cleanBounded(String runId) {
         drain(() -> records.deleteByRunBounded(runId, batchLimit));
+        drain(() -> rejects.deleteByRunBounded(runId, batchLimit));
         drain(() -> discrepancies.deleteOpenMachineByRunBounded(runId, batchLimit));
         drain(() -> partials.deleteByRunBounded(runId, batchLimit));
         drain(() -> reports.deleteByRunBounded(runId, batchLimit)); // #5: 清孤儿旧报表行

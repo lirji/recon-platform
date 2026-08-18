@@ -29,13 +29,11 @@
 ## 模块与依赖方向（依赖箭头一律指向 `recon-core`）
 
 ```
-recon-core        纯 Java 零框架:领域模型 + 四 SPI 接口 + 7 持久化端口 + 领域服务
-                  (SortMergeJoiner / DiscrepancyClassifier / ConservationChecker
-                   / MoneyMath / Fingerprint / Bucketing)
-   ↑          ↑
-recon-source-db   recon-batch (Spring Boot 组合根)
-(DbSourceAdapter   Spring Batch 编排 + 7 个 Jdbc*Store + Flyway 迁移 + 调度
- keyset 游标)
+recon-core             纯 Java零框架：领域模型 + SPI + 10 个持久化端口 + 领域服务
+   ↑       ↑       ↑       ↑
+source-db source-csv scenario handler   DB/CSV 数据源 / 场景桥接 / 处理链
+    \          \       |       /
+              recon-batch        Spring Boot 组合根：源路由 + Batch + JDBC + REST + 调度 + outbox
 ```
 
 `recon-core` 由 **ArchUnit 门禁**强制零框架：禁依赖 Spring / Spring Batch / Drools / JDBC / CSV / Flowable / JPA，且**金额路径禁 `double`**。接新数据源或规则只写外圈实现，不改内核。
@@ -48,6 +46,7 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 21)
 
 ./mvnw -q test                       # 全量编译 + 跑测试(集成测试用 H2 内存库,免 Docker)
 ./mvnw -q -pl recon-core test        # 只跑领域内核测试
+./mvnw -q -pl recon-source-csv -am test # CSV 适配器 + 架构门禁
 ./mvnw -pl recon-core test -Dtest=ConservationCheckerTest          # 单个测试类
 ./mvnw -pl recon-core test -Dtest=DiscrepancyClassifierTest#missing # 单个方法
 ./mvnw -q clean package              # 全量构建打包
@@ -55,6 +54,55 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 21)
 
 - 集成测试默认 **H2 内存库**（MySQL 兼容模式）+ Flyway 迁移，无需外部依赖即可跑绿。
 - 生产 DDL 保持 **MySQL 8 / PostgreSQL / H2 通用**；Spring Batch 元数据按方言拆在 `recon-batch/src/main/resources/db/batch/{h2,mysql,postgresql}`。
+
+## M5 REST 与调度
+
+默认场景为 `MARKETING_3WAY`，发起与重跑都使用 `recon.launch.default-job` 的确定性映射；REST 不能把未知场景或任意 Job 拼在一起运行。
+
+```bash
+# 发起；bucketCount 可省略，合法范围 1..4096
+curl -X POST http://localhost:8080/recon/runs \
+  -H 'Content-Type: application/json' \
+  -d '{"scenarioCode":"MARKETING_3WAY","accountingPeriod":"2026-08-18","bucketCount":64}'
+
+# 同一 runId 重跑（保留人工处置、冲正建议和审计）
+curl -X POST http://localhost:8080/recon/runs/MARKETING_3WAY:2026-08-18:1/rerun
+
+# 人工核销；operator 最长 64、note 最长 512，expectedVersion 用于乐观锁
+curl -X POST http://localhost:8080/recon/discrepancies/{discrepancyId}/resolve \
+  -H 'Content-Type: application/json' \
+  -d '{"operator":"ops","note":"verified","expectedVersion":0}'
+
+curl http://localhost:8080/recon/runs/MARKETING_3WAY:2026-08-18:1/report
+```
+
+调度默认关闭。生产可设置 `RECON_SCHEDULER_ENABLED=true`，再配置 `RECON_SCHEDULER_LAUNCH_CRON`；告警默认由日志 dispatcher 接收，接真实通道时提供一个 `@Primary AlertDispatcher`。完整默认值见 `recon-batch/src/main/resources/application.yml`。
+
+## M6 CSV 数据源
+
+三方 Job 默认仍读取 DB。切换为 CSV 时设置：
+
+```bash
+export RECON_M4_SOURCE_TYPE=csv-file
+export RECON_M4_MARKETING_FILE=/data/recon/marketing.csv
+export RECON_M4_ACCOUNTING_FILE=/data/recon/accounting.csv
+export RECON_M4_CHANNEL_FILE=/data/recon/channel.csv
+export RECON_M4_CSV_CHARSET=UTF-8
+export RECON_M4_CSV_DELIMITER=,
+```
+
+CSV 必须有表头；字段约定如下：
+
+| 文件 | 必填表头 |
+|---|---|
+| marketing | `id,order_no,issue_id,ccy,amount_minor,entry_type,biz_status,biz_time,posting_time` |
+| accounting | `id,order_no,issue_id,channel_serial_no,ccy,amount_minor,entry_type,biz_status,biz_time,posting_time` |
+| channel | `id,channel_serial_no,ccy,amount_minor,entry_type,biz_status,biz_time,posting_time` |
+
+- `amount_minor` 是带符号 `long`，时间为 ISO-8601 instant（如 `2026-08-18T10:00:00Z`）；`biz_time` 必填，`posting_time` 可空。
+- 支持 UTF-8/UTF-16/UTF-32 BOM、显式字符集、单字符分隔符、标准 CSV 引号和跨行字段。BOM 与显式字符集冲突时启动即失败。
+- 业务字段畸形行写入 `recon_record_reject` 后继续；不可恢复的 CSV 语法或编码损坏会记录当前行 reject 并停止该文件，避免错位读取。
+- `raw_ref` 为绝对文件路径加物理行号；跨行记录形如 `file.csv:2-3`。重跑会先分批清理旧 reject，避免重复累积。
 
 ## 关键设计不变量（红线）
 
@@ -74,10 +122,10 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 21)
 | **M0** | recon-core 纯领域内核（内存 join 证正确性） | ✅ |
 | **M1** | 7 持久化端口 + DbSourceAdapter + Jdbc*Store + Flyway DDL | ✅ |
 | **M2** | 引入 Spring Batch，单线程 Job 端到端走通（H2） | ✅ |
-| **M3** | 分桶并行（BucketPartitioner + per-bucket 索引有序游标）、守恒单遍累计 | 🚧 进行中 |
-| **M4** | 两段桥接场景（`SpineBridgeKeyExtractor` + 营销三方场景装配） | ⏳ |
-| **M5** | 处理链 + 人工核销状态机 + 告警 outbox 中继 + REST | ⏳ |
-| **M6** | CSV 源适配器 + 加固 + 全链路集成测试 | ⏳ |
+| **M3** | 分桶并行（BucketPartitioner + per-bucket 索引有序游标）、守恒单遍累计 | ✅ |
+| **M4** | 两段桥接场景（`SpineBridgeKeyExtractor` + 营销三方场景装配） | ✅ |
+| **M5** | 处理链 + 人工核销状态机 + 告警 outbox 中继 + REST | ✅ |
+| **M6** | CSV 源适配器 + 加固 + 全链路集成测试 | ✅ |
 
 > 阶段二（平台化）：ReconScenario 配置驱动、Drools 判差、对接 Flowable 差错工单。
 > 阶段三（按需）：Flink 流式做近实时预警，批处理仍是权威定账。

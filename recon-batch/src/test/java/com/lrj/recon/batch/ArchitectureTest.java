@@ -14,7 +14,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
  *       job 层的 reader/writer/tasklet 走 recon-core 端口, 不直接碰 JDBC;</li>
  *   <li>M2 起<b>允许</b> Spring Batch, 但限定在 {@code ..job..} / {@code ..config..} (Job/Step 编排 + 组件),
  *       不泄漏到 {@code ..persistence..};</li>
- *   <li>Drools / CSV / Flowable 仍未引入 (归 M4/M5/M6) —— 结构性证明本轮未越界。</li>
+ *   <li>CSV 解析实现留在 recon-source-csv，组合根只依赖其公开适配器；Drools / Flowable 仍未引入。</li>
  * </ul>
  */
 @AnalyzeClasses(packages = "com.lrj.recon.batch", importOptions = ImportOption.DoNotIncludeTests.class)
@@ -33,12 +33,12 @@ class ArchitectureTest {
             .as("Spring Batch 限定在 job/config 编排层, 不泄漏到其它包");
 
     @ArchTest
-    static final ArchRule m2_does_not_pull_in_later_milestone_frameworks = noClasses()
+    static final ArchRule composition_root_does_not_parse_csv_or_pull_rule_workflow_frameworks = noClasses()
             .should().dependOnClassesThat().resideInAnyPackage(
                     "org.kie..",
                     "org.drools..",
                     "com.opencsv..",
                     "org.apache.commons.csv..",
                     "org.flowable..")
-            .as("M2 未引入 Drools/CSV/Flowable (归 M4/M5/M6)");
+            .as("组合根不直接解析 CSV，且未引入 Drools/Flowable");
 }

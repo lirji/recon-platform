@@ -46,7 +46,7 @@ public class JdbcRecordRejectStore {
                 ps.setString(3, segmentId);
                 ps.setString(4, role);
                 ps.setString(5, r.rawRef());
-                ps.setString(6, r.reason());
+                ps.setString(6, truncate(r.reason(), 128));
                 ps.setString(7, r.rawPayload());
                 ps.setTimestamp(8, SqlTimes.ts(now));
             }
@@ -56,5 +56,21 @@ public class JdbcRecordRejectStore {
                 return rejects.size();
             }
         });
+    }
+
+    private static String truncate(String value, int maxLength) {
+        return value == null || value.length() <= maxLength ? value : value.substring(0, maxLength);
+    }
+
+    /** 重跑前分批清理该 Run 的机器拒绝结果，防相同行每次重跑重复累积。 */
+    public int deleteByRunBounded(String runId, int limit) {
+        return jdbc.update("""
+                DELETE FROM recon_record_reject
+                 WHERE id IN (
+                     SELECT sub.id FROM (
+                         SELECT id FROM recon_record_reject WHERE run_id = ? LIMIT ?
+                     ) sub
+                 )
+                """, runId, limit);
     }
 }

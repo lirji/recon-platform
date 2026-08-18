@@ -24,9 +24,12 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 21)   # 本机(macOS)跑 mvn 前必
 
 ## 模块与依赖方向（依赖箭头一律指向 `recon-core`）
 
-- **`recon-core`**（纯 Java 零框架）：领域模型 + `spi` 四接口 + `application.port.out` 7 端口 + 领域服务（`SortMergeJoiner` / `GroupSumMatchStrategy` / `DiscrepancyClassifier` / `ExactEvaluator` / `EvaluatorFactory` / `ConservationChecker` / `MoneyMath` / `Fingerprint` / `Bucketing`）。
+- **`recon-core`**（纯 Java 零框架）：领域模型 + `spi` 插件接口 + `application.port.out` 10 个持久化端口 + 领域服务（`SortMergeJoiner` / `GroupSumMatchStrategy` / `DiscrepancyClassifier` / `DiscrepancyStateMachine` / `ConservationChecker` / `MoneyMath` / `Fingerprint` / `Bucketing`）。
 - **`recon-source-db`**：`SourceAdapter` 的 DB 实现（`DbSourceAdapter` + keyset 前向游标）。
-- **`recon-batch`**（组合根）：Spring Batch 编排 + 7 个 `Jdbc*Store`（实现 core 端口）+ Flyway 迁移 + 调度。
+- **`recon-source-csv`**：`SourceAdapter` 的 CSV 实现（BOM/编码、流式解析、文件行号血缘、逐行 reject）。
+- **`recon-scenario`**：营销三方两段桥接场景、key extractor 与 segment 定义。
+- **`recon-handler`**：纯 Java 处理链（台账、冲正建议、outbox 入队、Flowable 占位）。
+- **`recon-batch`**（组合根）：Spring Batch 编排 + JDBC 适配器 + Flyway + REST + 调度 + 告警中继。
 
 **ArchUnit 门禁（每模块各一份 `ArchitectureTest`，改动别踩）**：`recon-core` 的 `..domain..`/`..spi..`/`..application..` 禁依赖 `org.springframework..`、`org.springframework.batch..`、`org.kie..`、`java.sql..`、CSV、`org.flowable..`、JPA、`..adapter..`；额外一条**金额路径禁 `double`/`Double`**。Spring Batch/JDBC 只允许落在 `recon-batch` 的 `job`/`config`/`persistence` 包。接新数据源/规则只写外圈实现，别把框架依赖漏进 core。
 
@@ -36,7 +39,13 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 21)   # 本机(macOS)跑 mvn 前必
 
 **金额与守恒**：全链路 `signed_amount_minor`（`long` 分，红蓝字），`Money` 封装、禁 double、跨币种 `compare` 抛 `CurrencyMismatchException`，`MoneyMath.addExact` 溢出 fail-fast。守恒（`ConservationChecker`，设计 §8）是**构造性双向、双 matched 口径**：`matchedLeft`=干净匹配左额（即报表 `matched_amount_minor`）；`matchedRight`=干净匹配右额 + 所有"两侧配上但有差"组的右额（右侧看它们"配上了只是有差"）。按币种分桶、跨币不相加，`left_residual`/`right_residual` 均 by-construction ≡ 0。**⚠️ residual≡0 只抓"桶路由改坏 / 溢出"，不证明 `DiscrepancyClassifier` 判对**——分类正确性靠各差异桶数值断言 + 分类器单测，别把守恒当分类正确性的证明。
 
-**保护人工核销（最大产品风险，ADR-7）**：机器判差（`discrepancy`）/ 人工处置（`discrepancy_disposition`）/ 冲正建议（`reversal_suggestion`）**三表分离**。重跑只分批清 `recon_record` + `machine_result=1` 的 `discrepancy`（`ReconRerunService.cleanBounded`，每批独立事务防大事务锁全表），**绝不触碰** disposition/reversal——`JdbcDiscrepancyDispositionStore` 结构上就没有 delete 方法。差异身份用 `fingerprint`（SHA-256 canonical，null 键 → `'∅'`），`uk_disc(run_id, fingerprint)` 让空键类型也幂等；`upsertByFingerprint` 走可移植 update-else-insert + 并发 DuplicateKey 回退。冲正 MVP 只生成建议（`SUGGESTED`），无资金动作。
+**保护人工核销（最大产品风险，ADR-7）**：机器判差（`discrepancy`）/ 人工处置（`discrepancy_disposition`）/ 冲正建议（`reversal_suggestion`）**三表分离**。重跑分批清 `recon_record`、`recon_record_reject`、`machine_result=1` 的 `discrepancy` 和报表中间结果（`ReconRerunService.cleanBounded`，每批独立事务防大事务锁全表），**绝不触碰** disposition/reversal——`JdbcDiscrepancyDispositionStore` 结构上就没有 delete 方法。差异身份用 `fingerprint`（SHA-256 canonical，null 键 → `'∅'`），`uk_disc(run_id, fingerprint)` 让空键类型也幂等；`upsertByFingerprint` 走可移植 update-else-insert + 并发 DuplicateKey 回退。冲正 MVP 只生成建议（`SUGGESTED`），无资金动作。
+
+**M6 CSV 契约**：组合根以 `RoutingSourceAdapter` 按 `SourceDescriptor.sourceType` 选择 DB/CSV；三方场景通过格式无关的四份投影描述符装配，账务文件仍按 SEG1/SEG2 两次读取。CSV 支持 UTF-8/16/32 BOM、显式 charset、单字符 delimiter、引号/跨行字段；业务畸形行 reject 后继续，不可恢复的语法/编码错误记录 reject 后终止当前文件。`raw_ref=绝对路径:物理行号`，路径受 DDL 256 长度约束。
+
+**M5 幂等与并发**：`fingerprint` 是跨重跑的业务身份，`discrepancy_id` 则由 `runId + fingerprint` 派生为 run-local 稳定 UUID，不能把 fingerprint 直接当全局主键。事务内可重复插入使用 `JdbcDuplicateSafeInsert` 的 NESTED/savepoint，避免 PostgreSQL 唯一键异常毒化外层事务。人工处置收敛先锁同场景账期 Run 行，并且只有最大 sequence 的 Run 可更新视图；re-link/STALE 均带 version 条件，不能覆盖并发人工操作。
+
+**M5 发起与外部副作用**：REST 和 scheduler 都经 `ReconLaunchService` 原子分配 seq；MVP 只接受 `recon.launch.scenario-code` 对应的确定性 Job，`bucketCount` 为 1..4096。AlertHandler 在 chunk 内只写 outbox；`AlertRelayService.relayOnce` 用 `NOT_SUPPORTED` 挂起外层事务，外部 I/O 后再以每条 `REQUIRES_NEW` 短事务置 SENT/FAILED。默认 dispatcher 只记日志，生产需用 `@Primary AlertDispatcher` 替换。
 
 **分桶与勾兑（易踩坑）**：`bucket = floorMod(hash(group_key), N)`（桶键=group_key，`Bucketing`）。**不变式：match_key 必须是 group_key 的细分**（同一 match_key 只属唯一 group_key）——M2/M3 为 `match_key==group_key`（IDENTITY 特例），**M4 放宽为一般 refine**（如 SEG1 营销发放ID→发放单号 1:N）。生产装载期唯一 refine 关卡是 `StandardizeProcessor` 调 **`Bucketing.assertRefine`**（O(1) 结构性，允许 match≠group）；`assertIdentityRefine`/`assertRefineFunction` 是特例/函数性校验，**main 代码不接线**（仅单测/离线抽样）。⚠️ **函数性 refine（同 match_key 跨两侧→同 group_key）生产热路径不逐条校验**（千万级不建全表映射），脏跨表数据违反会产假 BRIDGE_BROKEN/EXTRA 且守恒抓不到——见 `docs/KNOWN_ISSUES.md` KI-6。`match_key` 可空且是勾兑键：游标排序用**可移植 `ORDER BY (match_key IS NULL), match_key`**（消除 MySQL NULLS-first vs PG NULLS-last），**null 键记录逐条路由为单边组、绝不进 `SortMergeJoiner`**（joiner 拒 null 键会抛异常）；同 group_key 下多条 null-key 差异靠 rawRef 鉴别 fingerprint 防碰撞（否则台账 undercount）。
 
@@ -48,4 +57,4 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 21)   # 本机(macOS)跑 mvn 前必
 
 ## 当前进度（walking-skeleton）
 
-M0 领域内核 ✅ / M1 持久化 ✅ / M2 Spring Batch 单线程 ✅ / **M3 分桶并行 🚧** / M4 两段桥接 / M5 处理链+人工核销+outbox / M6 CSV+加固。每个里程碑收官时 `./mvnw -q test` 必须全绿且各模块 ArchUnit 门禁通过。
+M0 领域内核 ✅ / M1 持久化 ✅ / M2 Spring Batch 单线程 ✅ / M3 分桶并行 ✅ / M4 两段桥接 ✅ / M5 处理链+人工核销+outbox+REST ✅ / M6 CSV+加固 ✅。下一阶段为平台化能力（配置驱动场景、Drools/Flowable 等），进入前需另行定范围。每个里程碑收官时 `./mvnw -q test` 必须全绿且各模块 ArchUnit 门禁通过。
