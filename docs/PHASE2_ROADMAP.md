@@ -29,29 +29,45 @@
 - **要做**:后端加 Spring Security + 登录;`operator` 改从**可信身份上下文**获取,不再信任请求体;角色分离 viewer / operator / admin;前端登录页替换手填操作人。
 - **依赖**:无前置 —— **它本身是 B3 / B5 的硬前置**;触及全部写接口(launch / rerun / resolve / close)与 DTO 的 operator 字段。
 
-### A2 · 生产级 AlertDispatcher — P1 · 工作量 S
+### A2 · 生产级 AlertDispatcher — P1 · 工作量 S — ✅ 已完成(2026-08-19)
 
-- **现状**:只有 `LoggingAlertDispatcher`(仅打日志),告警到不了外部。
-- **要做**:用 `@Primary` 替换为真实 webhook / 邮件 / IM;outbox + 中继机制已就绪,只差可插拔 dispatcher。
-- **依赖**:密钥/配置管理(A4);低耦合,可独立交付。
+- **原现状**:只有 `LoggingAlertDispatcher`(仅打日志),告警到不了外部。
+- **已交付**:`WebhookAlertDispatcher`(通用 HTTP webhook,协议无关 JSON 信封,适配钉钉/飞书/Slack/网关)。配 `RECON_ALERT_WEBHOOK_URL` 后经 `AlertDispatcherConfig` 以 `@Primary` 覆盖日志兜底(`@ConditionalOnExpression` 判 URL 非空白,空则不启用);幂等键随 `X-Idempotency-Key` 头下发,可选签名/鉴权头经 env 注入;2xx→SENT / 非 2xx·超时→FAILED 由中继补投;计量 `recon_alert_dispatch_total{channel,outcome}`。接非 HTTP 通道只需再实现 `AlertDispatcher` + `@Primary`。
+- **落地**:`recon-batch/.../alert/{WebhookAlertDispatcher,AlertWebhookProperties,AlertDispatcherConfig}.java`、`application.yml`(recon.alert.webhook)、测试 `WebhookAlertDispatcherTest`/`AlertDispatcherWiringTest`、`README.md`。
+- **依赖**:密钥/配置外部化(A4,已就绪);低耦合,独立交付。
 
-### A3 · 真库端到端 + 生产 DB profile — P1 · 工作量 M
+### A3 · 真库端到端 + 生产 DB profile — P1 · 工作量 M — ✅ 已完成(2026-08-19)
 
-- **现状**:`compose.yml` 后端跑 H2 file,默认测试 H2,真库仅 Testcontainers(KI-4)。
-- **要做**:跑通 `CollationRealDbIT`(MySQL8 + PG),验证 V3 collation ALTER、`fetchSize=Integer.MIN_VALUE` 真流式、方言 batch 元数据;补生产 DB 连接 profile。
-- **依赖**:需真实 MySQL/PG 环境或 CI Docker。
+- **原现状**:`compose.yml` 后端跑 H2 file,默认测试 H2,真库仅 Testcontainers(KI-4)。
+- **已交付**:
+  - 新增 **`RealDbEndToEndIT`**(系统属性驱动,直连外部 MySQL8/PG),绕开 Testcontainers 与新 Docker Engine(API≥1.55)的版本不兼容;对真实 **MySQL 8.0.46 + PG 16.15 全绿**,覆盖 V1+V2+V3 生产同款迁移、**方言 batch 序列**、collation 序/PAD SPACE、`idx_merge`、**`fetchSize=Integer.MIN_VALUE` 真流式游标**。
+  - 修 `CollationRealDbIT` 潜在方言 `ANALYZE` 语法坑(MySQL 需 `ANALYZE TABLE`)——此前从未真跑故未暴露。
+  - **PG 驱动 + Flyway PG 模块提为 runtime**,令「MySQL8/PG 通用」在生产成立(不再仅测试域)。
+  - **`compose.mysql.yml` 叠加层**:后端跑真 MySQL 8 的端到端本地部署;README 补「生产 DB」小节(env 切换 + 真库验证命令)。
+- **落地**:`recon-batch/.../RealDbEndToEndIT.java`、`compose.mysql.yml`、`recon-batch/pom.xml`、`README.md`、`KNOWN_ISSUES.md` KI-4。
+- **依赖**:需真实 MySQL/PG 环境或 CI Docker(已满足)。
 
-### A4 · 可观测性 + 健康检查 + 配置/密钥 — P1 · 工作量 M
+### A4 · 可观测性 + 健康检查 + 配置/密钥 — P1 · 工作量 M — ✅ 已完成(2026-08-19)
 
-- **现状**:无 actuator / micrometer / prometheus;compose healthcheck 靠打 `/recon/dashboard` 兜底。
-- **要做**:接 actuator(liveness / readiness / metrics)+ Micrometer→Prometheus + 批作业失败告警 + 结构化日志;外部化配置与密钥。
-- **依赖**:无强前置;其密钥能力被 A2 复用。
+- **原现状**:无 actuator / micrometer / prometheus;compose healthcheck 靠打 `/recon/dashboard` 兜底。
+- **已交付**:
+  - **actuator + Micrometer→Prometheus**:暴露 `health,info,metrics,prometheus`;`health` 含 **liveness/readiness 探针**,readiness 组 = `readinessState + db`。
+  - **批作业失败告警(计量+结构化日志侧)**:`ReconJobMetricsListener` 挂在 `reconciliationJob`/`marketingThreeWayJob` 上,产 `recon_job_failures_total{job,scenario}` + `recon_job_duration_*{job,status}`,FAILED 时打结构化 ERROR;补 Spring Batch 自动 `spring_batch_job_*`。真正外发通道仍是 A2 dispatcher。
+  - **结构化日志**:`logback-spring.xml` 按 profile 分流(secure=JSON / 其余=可读控制台)。
+  - **compose healthcheck** 改打 `/actuator/health/readiness`;**配置/密钥** 全环境变量外部化(README「可观测性」小节)。
+- **落地**:`recon-batch/pom.xml`(actuator/micrometer/logstash-encoder)、`application.yml`(management)、`job/ReconJobMetricsListener.java`、`config/{BatchConfig,MarketingThreeWayConfig}.java`(挂 listener)、`resources/logback-spring.xml`、`compose.yml`、测试 `ActuatorEndpointsTest`/`ReconJobMetricsListenerTest`、`README.md`。
+- **诚实边界**:secure profile 下 `/actuator/prometheus`、`/actuator/metrics` 需认证(采集器带 Bearer 或受控内网限制);JSON 日志分流为 profile 门控,dev/测试不受影响。
+- **依赖**:无强前置;其密钥外部化能力被 A2 复用。
 
-### A5 · KI 已知问题加固 — P2(默认关/低危)· 工作量 S–M
+### A5 · KI 已知问题加固 — P2(默认关/低危)· 工作量 S–M — ✅ 已完成(2026-08-19)
 
-- **现状**:均为默认关 / 低危场景,已在 `KNOWN_ISSUES.md` 记录。
-- **要做**:KI-1 skew restart 配置指纹 fail-fast(仅 sub-bucket 开启时);KI-6 refine 函数性预校验作业(数据质量护栏)。
-- **依赖**:无 —— 不阻断上线,但需 track。
+- **原现状**:均为默认关 / 低危场景,已在 `KNOWN_ISSUES.md` 记录。
+- **已交付**:
+  - **KI-1**:`SkewConfigGuardListener`(挂两个 Job)—— skew 形状指纹 `enabled|fanout` 入 Job 级 ExecutionContext,restart 时对 **fanout 数值变** 或 **累计翻转≥2** fail-fast(单次整桶↔sub 翻转仍放行,不误伤已缓解路径);默认关时恒 no-op。测试 `ReconJobSkewFanoutRestartGuardTest` + `ReconJobShapeFlipRestartTest` 共同界定边界。
+  - **KI-6**:只读诊断 `GET /recon/runs/{id}/refine-violations` —— DB 侧 `GROUP BY match_key HAVING COUNT(DISTINCT group_key)>1` 扫 staged `recon_record`,把假 BRIDGE_BROKEN/EXTRA 从「守恒抓不到」升级为「显式可发现」;不占热路径,有界+truncated 标记。测试 `RefineViolationsTest`。
+- **落地**:`job/SkewConfigGuardListener.java`、`config/{BatchConfig,MarketingThreeWayConfig}`(挂 listener)、`service/ReconConsoleQueryService.refineViolations`、`service/ReconConsoleQueryRepository`+`persistence/JdbcReconConsoleQueryStore`(findRefineViolations)、`web/ReconConsoleController`、`KNOWN_ISSUES.md` KI-1/KI-6。
+- **诚实边界**:KI-1 守卫是把静默错算升级为 fail-fast,运维「restart 前不改 skew 配置」约束仍在;KI-6 是事后诊断(staging 扫描),非 join 实时拦截。
+- **依赖**:无 —— 不阻断上线。
 
 ---
 
@@ -59,11 +75,14 @@
 
 > 阶段二 Non-goals,字段/接口已留位。把「营销三方专用」推向「通用对账平台」,按价值/依赖排。
 
-### B1 · 三方合并只读视图 — P1(速赢)· 工作量 S–M
+### B1 · 三方合并只读视图 — P1(速赢)· 工作量 S–M — 🟡 后端 ✅ / 前端待 frontend-plan
 
-- **现状**:MVP 只出两段独立报表。
-- **要做**:把两段独立报表合成单一三方 roll-up 摘要(口径决议 A2 归阶段二);只读查询 + 前端页,**无算法风险**,运营价值高、成本低。
-- **依赖**:无(纯读)—— **可与 Track A 并行,适合作为阶段二第一个功能交付**。
+- **原现状**:MVP 只出两段独立报表。
+- **已交付(后端只读 API)**:`GET /recon/runs/{id}/three-way` → `ThreeWayReport`。由一个 Run 的两段报表(SEG1 营销↔账务、SEG2 账务↔渠道)**派生**单一三方 roll-up,纯读、无新 SQL、无算法风险。
+  - **口径**(设计 A2 只把合并归阶段二未定细则,此处为阶段二取定并显式标注):`threeWayConsistent` = 每币种两段均在且均 balanced(**布尔与,不跨段求和金额**——spine 账务侧被两段共享,相加会重复计;故只合成状态,原始各段金额并列供下钻);`bridgeBrokenMinor` = 两段桥断额之和(两个独立断点阶段);`threeWayBalanced` = 所有币种皆 consistent。
+  - **落地**:`service/ReconConsoleQueryService.threeWayRollup`、`service/ReconConsoleQueryRepository`(ThreeWayReport/CurrencyRollup DTO)、`web/ReconConsoleController`、测试 `web/ThreeWayRollupTest`。
+- **待做(前端页)**:三方 roll-up 摘要页/区块,按全局规范先走 **frontend-plan**(计划批准前不写码)。
+- **依赖**:无(纯读)。
 
 ### B2 · Drools 规则引擎 — P1 · 工作量 M–L
 
@@ -135,7 +154,7 @@ A1 认证鉴权 ─────▶ B5 工单审批 ─────▶ B3 自动�
 | 类别 | 事实 |
 |---|---|
 | 鉴权 | 后端零 Spring Security;operator 来自前端 `sessionStorage` 手填 |
-| 告警 | 仅 `LoggingAlertDispatcher`(打日志) |
-| 部署 | `compose.yml` 后端跑 H2 file,非 MySQL / PG |
-| 监控 | 无 actuator / micrometer / prometheus |
+| 告警 | **A2 已补** `WebhookAlertDispatcher`(配 `RECON_ALERT_WEBHOOK_URL` 即 `@Primary` 生效,发外部 HTTP);未配则 `LoggingAlertDispatcher` 兜底 |
+| 部署 | 基座 `compose.yml` 后端跑 H2 file;**A3 已补** `compose.mysql.yml` 叠加层(真 MySQL 8 端到端)+ PG 驱动提为 runtime,真库端到端经 `RealDbEndToEndIT` 验证 |
+| 监控 | **A4 已补** actuator(health/liveness/readiness)+ Micrometer→Prometheus(`recon_job_failures_total`/`recon_job_duration` + `spring_batch_job_*`)+ 结构化日志(secure=JSON) |
 | 已交付 | M0–M6 全链路 + 前端 Console MVP + M7 本地 Docker 编排 + CI(`ci.yml`) |

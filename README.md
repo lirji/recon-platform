@@ -78,7 +78,9 @@ curl -X POST http://localhost:8080/recon/discrepancies/{discrepancyId}/resolve \
 curl http://localhost:8080/recon/runs/MARKETING_3WAY:2026-08-18:1/report
 ```
 
-调度默认关闭。生产可设置 `RECON_SCHEDULER_ENABLED=true`，再配置 `RECON_SCHEDULER_LAUNCH_CRON`；告警默认由日志 dispatcher 接收，接真实通道时提供一个 `@Primary AlertDispatcher`。完整默认值见 `recon-batch/src/main/resources/application.yml`。
+调度默认关闭。生产可设置 `RECON_SCHEDULER_ENABLED=true`，再配置 `RECON_SCHEDULER_LAUNCH_CRON`。完整默认值见 `recon-batch/src/main/resources/application.yml`。
+
+**告警投递**：默认 `LoggingAlertDispatcher`(仅打日志)。配置 `RECON_ALERT_WEBHOOK_URL` 后，`WebhookAlertDispatcher` 自动以 `@Primary` 生效，向该 URL POST JSON 信封(`idempotencyKey/runId/fingerprint/attempt/payload`)——适配钉钉/飞书/Slack 自定义机器人或 HTTP 告警网关；幂等键随 `X-Idempotency-Key` 头下发供下游去重(at-least-once)。可选签名/鉴权头经 `RECON_ALERT_WEBHOOK_HEADER_NAME`/`RECON_ALERT_WEBHOOK_HEADER_VALUE` 注入(密钥经环境变量，不落配置)。投递计量 `recon_alert_dispatch_total{channel=webhook,outcome}`(见「可观测性」)；2xx=成功置 SENT，非 2xx/超时=失败置 FAILED 由中继补投。要接入非 HTTP 通道(SMTP/SDK)，实现 `AlertDispatcher` 并声明 `@Primary` 即可。
 
 ## 运营管理台
 
@@ -91,6 +93,8 @@ curl http://localhost:8080/recon/runs/MARKETING_3WAY:2026-08-18:1/report
 | `GET /recon/dashboard` | 指标、差异类型构成、最近运行 |
 | `GET /recon/runs` | Run 筛选和分页 |
 | `GET /recon/runs/{id}` | Run 元数据与精确金额守恒报表 |
+| `GET /recon/runs/{id}/three-way` | B1 三方合并 roll-up 摘要(两段报表派生:每币种 `threeWayConsistent`=两段皆平、`bridgeBrokenMinor`=两段桥断和;不跨段求和金额以免重复计 spine) |
+| `GET /recon/runs/{id}/refine-violations` | A5/KI-6 数据质量护栏:列出同一 `match_key` 落多个 `group_key` 的脏跨表数据(会产假 BRIDGE_BROKEN/EXTRA 而守恒抓不到),把隐性风险显式化 |
 | `GET /recon/discrepancies` | 差异筛选和分页 |
 | `GET /recon/discrepancies/{id}` | 差异、处置、审计、冲正和告警详情 |
 
@@ -116,7 +120,66 @@ curl http://localhost:8088/healthz
 curl http://localhost:8088/recon/dashboard
 ```
 
-管理台暴露在 `http://localhost:8088`；后端仅绑定宿主机 `127.0.0.1:8180` 供诊断，管理台通过 Compose 内部网络访问后端。默认使用具名卷 `recon-platform-data` 持久化 H2 数据，重新构建不会删除该卷；真实生产环境仍应通过 `DB_URL`、`DB_USER`、`DB_PASSWORD` 切换到 MySQL/PostgreSQL。
+管理台暴露在 `http://localhost:8088`；后端仅绑定宿主机 `127.0.0.1:8180` 供诊断，管理台通过 Compose 内部网络访问后端。默认使用具名卷 `recon-platform-data` 持久化 H2 数据，重新构建不会删除该卷；真实生产环境仍应通过 `DB_URL`、`DB_USER`、`DB_PASSWORD` 切换到 MySQL/PostgreSQL（见下）。
+
+### 生产 DB（MySQL 8 / PostgreSQL）
+
+基座 `compose.yml` 后端跑 H2 file（免外部依赖）；生产切真库两种方式，二选一：
+
+**① Compose 叠加层（真库端到端本地部署，推荐先跑通）**——`compose.mysql.yml` 起 MySQL 8 并把后端指过去：
+
+```bash
+docker compose -f compose.yml -f compose.mysql.yml up -d --build --remove-orphans
+docker compose -f compose.yml -f compose.mysql.yml ps      # 等 db + backend 均 healthy
+```
+
+后端启动时 Flyway 自动迁移 **V1 领域 schema + V2 方言 batch 元数据（MySQL 表式序列 `BATCH_*_SEQ`）+ V3 `match_key` collation（`utf8mb4_bin`）**。
+
+**② 直接用环境变量指向已有 MySQL/PG**（K8s / 云托管 DB 等）：
+
+```bash
+# MySQL 8
+export DB_URL='jdbc:mysql://<host>:3306/recon?useSSL=true&serverTimezone=UTC&characterEncoding=utf8'
+# PostgreSQL（PG 驱动 + Flyway PG 模块已随发布 jar，runtime 可用）
+export DB_URL='jdbc:postgresql://<host>:5432/recon'
+export DB_USER=recon DB_PASSWORD=****** DB_POOL_SIZE=20   # 池 ≈ partition 池 × 3 + 余量, 与 DB max_connections 对齐
+```
+
+方言由 Flyway `{vendor}` 目录自动装配（`db/schema/{mysql,postgresql,h2}` 的 V3、`db/batch/{...}` 的 V2）；MySQL8 不支持 `CREATE SEQUENCE` 故用官方表式序列，PG/H2 用 `CREATE SEQUENCE`。
+
+**真库验证**（需本机可 `docker run`；覆盖 collation 序 / PAD SPACE、方言 batch 序列、`idx_merge` 计划、`fetchSize=Integer.MIN_VALUE` 真流式）：
+
+```bash
+docker run -d --name recon-it-mysql -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=recon -p 127.0.0.1:23306:3306 mysql:8.0
+docker run -d --name recon-it-pg   -e POSTGRES_DB=recon -e POSTGRES_USER=recon -e POSTGRES_PASSWORD=recon -p 127.0.0.1:26543:5432 postgres:16
+./mvnw -pl recon-batch -am test -Dtest=RealDbEndToEndIT -Dsurefire.failIfNoSpecifiedTests=false \
+  -Drecon.it.mysql.url='jdbc:mysql://127.0.0.1:23306/recon' -Drecon.it.mysql.user=root -Drecon.it.mysql.password=root \
+  -Drecon.it.postgres.url='jdbc:postgresql://127.0.0.1:26543/recon' -Drecon.it.postgres.user=recon -Drecon.it.postgres.password=recon
+```
+
+未配 `recon.it.*.url` 时该 IT 优雅跳过，`./mvnw test` 默认不触真库（详见 `docs/KNOWN_ISSUES.md` KI-4）。
+
+### 可观测性（actuator + Prometheus + 结构化日志）
+
+后端接入 Spring Boot Actuator + Micrometer(Prometheus)。端点(默认暴露 `health,info,metrics,prometheus`)：
+
+| 端点 | 用途 | secure profile 访问 |
+|---|---|---|
+| `/actuator/health` | 汇总健康 | permitAll(仅状态,details 需授权) |
+| `/actuator/health/liveness` | 存活探针(K8s livenessProbe) | permitAll |
+| `/actuator/health/readiness` | 就绪探针 = `readinessState` + `db`;未就绪不进流量。Compose backend healthcheck 已改打此端点 | permitAll |
+| `/actuator/prometheus` | Prometheus 抓取 | **需认证**(带 Bearer 或受控内网经网关限制) |
+| `/actuator/metrics` | 指标浏览 | **需认证** |
+
+指标：Spring Batch 自动产 `spring_batch_job_*`(含 `status="FAILED"`)；本平台另加 **`recon_job_failures_total{job,scenario}`** 与 **`recon_job_duration_*{job,status}`**(`ReconJobMetricsListener`,挂在两个 Job 上)。所有指标带公共标签 `application="recon-batch"`。批作业失败时同时打一条结构化 ERROR 日志(`recon job FAILED job=… scenario=… runId=… reason=…`),可用作日志告警键控;真正外发通道由 A2 的 `@Primary AlertDispatcher` 提供。Prometheus 告警示例：
+
+```promql
+increase(recon_job_failures_total[15m]) > 0
+```
+
+**结构化日志**：`logback-spring.xml` 按 profile 分流——本地/dev/测试保持可读控制台格式；生产 `SPRING_PROFILES_ACTIVE=secure` 输出**行分隔 JSON**(logstash-logback-encoder)到 stdout，便于 ELK/Loki 聚合。
+
+**配置与密钥**：所有可变项经环境变量外部化(DB 见「生产 DB」；`RECON_AUTH_*` 见下方 auth；`RECON_SCHEDULER_*`、`RECON_ALERT_*` 等见 `application.yml`),镜像不落密钥；生产用 K8s Secret / Vault 注入环境变量即可，无需改配置文件。
 
 ## M6 CSV 数据源
 
