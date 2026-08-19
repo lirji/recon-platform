@@ -7,6 +7,8 @@ import com.lrj.recon.batch.job.EvaluatedGroup;
 import com.lrj.recon.batch.job.MatchEvaluateWriter;
 import com.lrj.recon.batch.job.PartitionFailureGate;
 import com.lrj.recon.batch.job.ReconJobContext;
+import com.lrj.recon.batch.job.ReconJobMetricsListener;
+import com.lrj.recon.batch.job.SkewConfigGuardListener;
 import com.lrj.recon.batch.job.SkewDetector;
 import com.lrj.recon.batch.job.SourceAdapterItemReader;
 import com.lrj.recon.batch.job.StagingRecordWriter;
@@ -204,8 +206,12 @@ public class MarketingThreeWayConfig {
     public Job marketingThreeWayJob(Step prepareRunStep,
                                     Step seg1LoadStep, Step seg1MatchEvaluateStep,
                                     Step seg2LoadStep, Step seg2MatchEvaluateStep,
-                                    Step reportStep, Step convergenceStep, Step alertRelayStep) {
+                                    Step reportStep, Step convergenceStep, Step alertRelayStep,
+                                    ReconJobMetricsListener jobMetricsListener,
+                                    SkewConfigGuardListener skewConfigGuardListener) {
         return new JobBuilder("marketingThreeWayJob", jobRepository)
+                .listener(skewConfigGuardListener) // A5/KI-1: restart 前改 sub-bucket 配置 fail-fast
+                .listener(jobMetricsListener) // A4: 失败计量 + 结构化告警日志
                 .start(prepareRunStep)
                 .next(seg1LoadStep)
                 .next(seg1MatchEvaluateStep)

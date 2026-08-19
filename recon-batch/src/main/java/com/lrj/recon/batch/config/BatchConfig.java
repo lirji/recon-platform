@@ -11,7 +11,9 @@ import com.lrj.recon.batch.job.MatchEvaluateWriter;
 import com.lrj.recon.batch.job.PartitionFailureGate;
 import com.lrj.recon.batch.job.PrepareRunTasklet;
 import com.lrj.recon.batch.job.ReconJobContext;
+import com.lrj.recon.batch.job.ReconJobMetricsListener;
 import com.lrj.recon.batch.job.ReconRerunService;
+import com.lrj.recon.batch.job.SkewConfigGuardListener;
 import com.lrj.recon.batch.job.ReportTasklet;
 import com.lrj.recon.batch.job.SkewDetector;
 import com.lrj.recon.batch.job.SourceAdapterItemReader;
@@ -116,8 +118,12 @@ public class BatchConfig {
 
     @Bean
     public Job reconciliationJob(Step prepareRunStep, Step loadStep, Step matchEvaluateStep, Step reportStep,
-                                 Step convergenceStep, Step alertRelayStep) {
+                                 Step convergenceStep, Step alertRelayStep,
+                                 ReconJobMetricsListener jobMetricsListener,
+                                 SkewConfigGuardListener skewConfigGuardListener) {
         return new JobBuilder("reconciliationJob", jobRepository)
+                .listener(skewConfigGuardListener) // A5/KI-1: restart 前改 sub-bucket 配置 fail-fast
+                .listener(jobMetricsListener) // A4: 失败计量 + 结构化告警日志
                 .start(prepareRunStep)
                 .next(loadStep)
                 .next(matchEvaluateStep)
