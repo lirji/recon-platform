@@ -60,6 +60,23 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
         </dependency>
+        <!-- A4: 可观测性. actuator 提供 health(liveness/readiness 探针)/info/metrics; micrometer prometheus 注册表
+             暴露 /actuator/prometheus (含 Spring Batch 自动 spring.batch.* 计量 + 本平台 recon.job.* 自定义计量). -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- A4: 结构化日志 (secure/prod profile 输出 JSON, 便于日志聚合); dev/测试保持默认可读控制台格式. -->
+        <dependency>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+            <version>7.4</version>
+        </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
@@ -76,6 +93,18 @@
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- A3: 生产可切 PostgreSQL —— PG 驱动 + Flyway 10 的 PG 模块提为 runtime (与 mysql-connector-j / h2 并列),
+             令设计的 "MySQL8/PG 通用" 在生产成立 (DB_URL 指向 PG 即可), 不再仅限测试域. -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
 
@@ -113,17 +142,8 @@
             <artifactId>postgresql</artifactId>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>org.postgresql</groupId>
-            <artifactId>postgresql</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <!-- Flyway 10 把 PG 支持拆到独立模块; MySQL 支持已由 runtime 的 flyway-mysql 提供. -->
-        <dependency>
-            <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-database-postgresql</artifactId>
-            <scope>test</scope>
-        </dependency>
+        <!-- PG 驱动 (org.postgresql) 与 Flyway PG 模块 (flyway-database-postgresql) 已提为 runtime (见上, A3),
+             测试域 (CollationRealDbIT / RealDbEndToEndIT) 与生产共用同一 runtime 依赖, 不再单列 test 作用域副本. -->
     </dependencies>
 
     <build>

@@ -1,0 +1,49 @@
+# A3 生产 DB 叠加层: 后端改跑真实 MySQL 8 (替代默认 compose.yml 的 H2 file), 提供真库端到端本地部署。
+#
+# 用法 (叠加在基座 compose.yml 之上):
+#   docker compose -f compose.yml -f compose.mysql.yml up -d --build --remove-orphans
+#   docker compose -f compose.yml -f compose.mysql.yml ps
+#
+# 后端启动时 Flyway 自动迁移 V1 领域 schema + V2 方言 batch 元数据(MySQL 表式序列 BATCH_*_SEQ)
+# + V3 match_key collation(utf8mb4_bin)。切 PostgreSQL 见 README「生产 DB」小节(改 DB_URL + PG 服务)。
+name: recon-platform
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: recon-platform-mysql
+    restart: unless-stopped
+    # utf8mb4 全库默认;match_key 列 collation 由 Flyway V3 pin 为 utf8mb4_bin(与 Java 码点序对齐)。
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
+    environment:
+      MYSQL_DATABASE: recon
+      MYSQL_USER: recon
+      MYSQL_PASSWORD: recon
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-recon-root}
+    volumes:
+      - recon_mysql_data:/var/lib/mysql
+    # 仅绑宿主机回环供诊断,不暴露公网。
+    ports:
+      - "127.0.0.1:23306:3306"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h127.0.0.1 -urecon -precon --silent || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+
+  backend:
+    # 覆盖基座的 H2 file:改指向真库 MySQL 8。其余(镜像/端口/healthcheck)沿用 compose.yml。
+    environment:
+      DB_URL: "jdbc:mysql://db:3306/recon?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=utf8"
+      DB_USER: recon
+      DB_PASSWORD: recon
+      # 连接池按 partition 池 × 3 + 余量;与 MySQL max_connections 对齐时用 DB_POOL_SIZE 覆盖。
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-20}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  recon_mysql_data:
+    name: recon-platform-mysql-data

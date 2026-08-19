@@ -60,8 +60,9 @@ class CollationRealDbIT {
             // KeyNormalizer 把两者归一 → 标准化后不会出现该坑
             assertThat(KeyNormalizer.normalizeTrailing("K1 ")).isEqualTo(KeyNormalizer.normalizeTrailing("K1"));
 
-            // 3) per-bucket 等值前缀查询命中 idx_merge
-            assertThat(perBucketPlan(jdbc, "run-idx")).containsIgnoringCase("idx_merge");
+            // 3) per-bucket 等值前缀查询命中 idx_merge (MySQL8 用 ANALYZE TABLE 语法)
+            assertThat(perBucketPlan(jdbc, "run-idx", "ANALYZE TABLE recon_record"))
+                    .containsIgnoringCase("idx_merge");
         }
     }
 
@@ -86,8 +87,9 @@ class CollationRealDbIT {
                     "SELECT COUNT(*) FROM recon_record WHERE run_id='run-pad' AND match_key = 'K1'", Long.class);
             assertThat(padMatches).as("PG 是 no-pad, 'K1' != 'K1 '").isEqualTo(1L);
 
-            // 3) per-bucket 等值前缀查询命中 idx_merge (spread 到多桶使 bucket 0 选择性够高, 再 ANALYZE)
-            assertThat(perBucketPlan(jdbc, "run-idx")).containsIgnoringCase("idx_merge");
+            // 3) per-bucket 等值前缀查询命中 idx_merge (spread 到多桶使 bucket 0 选择性够高, 再 ANALYZE; PG 用 ANALYZE <table>)
+            assertThat(perBucketPlan(jdbc, "run-idx", "ANALYZE recon_record"))
+                    .containsIgnoringCase("idx_merge");
         }
     }
 
@@ -122,12 +124,16 @@ class CollationRealDbIT {
         return sorted;
     }
 
-    /** 造多桶数据 (bucket 0 仅少量, 提升选择性) + EXPLAIN per-bucket 查询, 返回计划文本。 */
-    private static String perBucketPlan(JdbcTemplate jdbc, String run) {
+    /**
+     * 造多桶数据 (bucket 0 仅少量, 提升选择性) + ANALYZE + EXPLAIN per-bucket 查询, 返回计划文本。
+     * {@code analyzeSql} 方言相关: MySQL8 用 {@code ANALYZE TABLE <t>}, PG 用 {@code ANALYZE <t>} —— 语法不同,
+     * 混用会 BadSqlGrammar (MySQL 不认 {@code ANALYZE <t>})。
+     */
+    private static String perBucketPlan(JdbcTemplate jdbc, String run, String analyzeSql) {
         for (int i = 0; i < 400; i++) {
             insert(jdbc, run, i % 40, String.format("K%05d", i)); // spread 40 桶
         }
-        jdbc.execute("ANALYZE recon_record"); // MySQL8/PG 均支持, 让优化器有统计
+        jdbc.execute(analyzeSql); // 让优化器有统计
         StringBuilder plan = new StringBuilder();
         RowCallbackHandler collector = rs -> {
             int cols = rs.getMetaData().getColumnCount();
