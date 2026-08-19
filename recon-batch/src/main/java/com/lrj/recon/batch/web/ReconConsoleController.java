@@ -39,6 +39,18 @@ public class ReconConsoleController {
         return queries.getRun(runId);
     }
 
+    /** B1 三方合并 roll-up 摘要(只读派生,recon.read)。 */
+    @GetMapping("/runs/{id}/three-way")
+    public ReconConsoleQueryRepository.ThreeWayReport threeWay(@PathVariable("id") String runId) {
+        return queries.threeWayRollup(runId);
+    }
+
+    /** A5/KI-6 数据质量护栏:函数性 refine 违规(同一 match_key 落多个 group_key)只读诊断(recon.read)。 */
+    @GetMapping("/runs/{id}/refine-violations")
+    public ReconConsoleQueryRepository.RefineViolationReport refineViolations(@PathVariable("id") String runId) {
+        return queries.refineViolations(runId);
+    }
+
     @GetMapping("/discrepancies")
     public ReconConsoleQueryRepository.PageResult<ReconConsoleQueryRepository.DiscrepancySummary> discrepancies(
             @RequestParam(required = false) String runId,

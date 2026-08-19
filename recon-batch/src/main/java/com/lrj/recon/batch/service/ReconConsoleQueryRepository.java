@@ -24,6 +24,15 @@ public interface ReconConsoleQueryRepository {
 
     Optional<DiscrepancyDetail> findDiscrepancy(String discrepancyId);
 
+    /**
+     * A5 / KI-6 数据质量护栏:扫 staged {@code recon_record} 找违反<b>函数性 refine</b> 的 match_key ——
+     * 同一 (segment, match_key) 映射到 &gt;1 个 group_key(如同一营销发放ID 左侧挂 Ga、右侧挂 Gb)。这类脏跨表数据
+     * 会让两侧落<b>不同桶</b>而永不相遇 → 产假 BRIDGE_BROKEN/EXTRA,且左右额独立入各自口径,双向守恒仍 residual≡0
+     * <b>抓不到</b>。DB 侧 {@code GROUP BY ... HAVING COUNT(DISTINCT group_key) > 1} 完成,不建 Java 全表映射、不占对账热路径。
+     * 结果按冲突 group 数降序、有界({@code limit});{@code limit} 传 N+1 由上层判断是否被截断。
+     */
+    List<RefineViolation> findRefineViolations(String runId, int limit);
+
     record RunFilter(String scenarioCode, String accountingPeriod, String status, int page, int size) {
     }
 
@@ -76,6 +85,42 @@ public interface ReconConsoleQueryRepository {
                        String timingMinor, String statusMismatchMinor, String currencyMismatchMinor,
                        String groupSumMismatchMinor, String bridgeBrokenMinor, String rightSideTotalMinor,
                        String leftResidualMinor, String rightResidualMinor, boolean balanced) {
+    }
+
+    /**
+     * B1 三方合并 roll-up 摘要(阶段二)。由 {@link ReconConsoleQueryService#threeWayRollup} 从一个 Run 的两段
+     * {@link ReportEntry}(SEG1 营销↔账务、SEG2 账务↔渠道)<b>派生</b>而来,不引入新 SQL/算法:
+     * {@code threeWayBalanced} = 每币种两段皆 balanced(布尔与,非跨段金额求和,避免重复计 spine 账务侧)。
+     */
+    record ThreeWayReport(String runId, String scenarioCode, String accountingPeriod, String status,
+                          Boolean threeWayBalanced, List<CurrencyRollup> currencies) {
+        public ThreeWayReport {
+            currencies = List.copyOf(currencies);
+        }
+    }
+
+    /**
+     * 单币种三方 roll-up。{@code seg1}/{@code seg2} 为该币种两段原始报表(缺段为 null → 链路不完整);
+     * {@code threeWayConsistent} = 两段均在且均 balanced;{@code bridgeBrokenMinor} = 两段桥断额之和(两个
+     * 不同断点阶段的独立金额,非重复计),是三方链路专有诊断。金额十进制字符串,防 BIGINT 精度损失。
+     */
+    record CurrencyRollup(String currency, ReportEntry seg1, ReportEntry seg2,
+                          boolean threeWayConsistent, String bridgeBrokenMinor) {
+    }
+
+    /** KI-6 单条函数性 refine 违规:同一 (segment, match_key) 映射到多个 group_key(distinctGroupCount)。 */
+    record RefineViolation(String segmentId, String matchKey, long distinctGroupCount) {
+    }
+
+    /**
+     * KI-6 违规报告。{@code truncated}=是否被有界截断(还有更多违规未列出),遵循「不静默截断」原则。
+     * {@code violationCount}=本次列出的条数。
+     */
+    record RefineViolationReport(String runId, int violationCount, boolean truncated,
+                                 List<RefineViolation> violations) {
+        public RefineViolationReport {
+            violations = List.copyOf(violations);
+        }
     }
 
     record DiscrepancySummary(String discrepancyId, String runId, String scenarioCode, String accountingPeriod,

@@ -222,6 +222,23 @@ public class JdbcReconConsoleQueryStore implements ReconConsoleQueryRepository {
         return Optional.of(new DiscrepancyDetail(summary.orElseThrow(), actions, reversals, alerts));
     }
 
+    @Override
+    public List<RefineViolation> findRefineViolations(String runId, int limit) {
+        // KI-6: DB 侧聚合找函数性 refine 违规 —— 同一 (segment, match_key) 落多个 group_key。null match_key 逐条单边
+        // 路由、不参与勾兑, 排除。按冲突组数降序便于优先处置; LIMIT 有界(上层传 N+1 判是否截断)。
+        return jdbc.query("""
+                SELECT segment_id, match_key, COUNT(DISTINCT group_key) AS group_count
+                  FROM recon_record
+                 WHERE run_id = ? AND match_key IS NOT NULL
+                 GROUP BY segment_id, match_key
+                HAVING COUNT(DISTINCT group_key) > 1
+                 ORDER BY group_count DESC, segment_id, match_key
+                 LIMIT ?
+                """, (rs, rowNum) -> new RefineViolation(
+                rs.getString("segment_id"), rs.getString("match_key"), rs.getLong("group_count")),
+                runId, limit);
+    }
+
     private long count(String sql, List<Object> params) {
         Long value = jdbc.queryForObject(sql, Long.class, params.toArray());
         return value == null ? 0 : value;
