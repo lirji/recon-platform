@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:flowable="http://flowable.org/bpmn"
+             targetNamespace="http://recon.lrj.com/workflow">
+
+  <!-- B5 冲正审批: 提交 → 人工审批 → 通过(CONFIRMED)/驳回(DISCARDED)。无资金动作(归 B3)。 -->
+  <process id="reversalApproval" name="冲正审批" isExecutable="true">
+
+    <startEvent id="start"/>
+    <sequenceFlow id="toReview" sourceRef="start" targetRef="review"/>
+
+    <userTask id="review" name="审批冲正建议" flowable:candidateGroups="reversal-reviewers"/>
+    <sequenceFlow id="toGateway" sourceRef="review" targetRef="decision"/>
+
+    <exclusiveGateway id="decision"/>
+    <sequenceFlow id="toConfirmed" sourceRef="decision" targetRef="confirmedEnd">
+      <conditionExpression xsi:type="tFormalExpression"
+                           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">${approved == true}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="toDiscarded" sourceRef="decision" targetRef="discardedEnd">
+      <conditionExpression xsi:type="tFormalExpression"
+                           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">${approved != true}</conditionExpression>
+    </sequenceFlow>
+
+    <endEvent id="confirmedEnd">
+      <extensionElements>
+        <flowable:executionListener event="start" delegateExpression="${reversalStatusListener}"/>
+      </extensionElements>
+    </endEvent>
+    <endEvent id="discardedEnd">
+      <extensionElements>
+        <flowable:executionListener event="start" delegateExpression="${reversalStatusListener}"/>
+      </extensionElements>
+    </endEvent>
+
+  </process>
+</definitions>

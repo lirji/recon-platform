@@ -75,6 +75,25 @@ export interface RunDetail {
   reports: ReportEntry[]
 }
 
+// B1 三方合并只读 roll-up。由后端从一个 Run 的两段报表(SEG1 营销↔账务、SEG2 账务↔渠道)派生。
+// 金额一律十进制字符串,禁转 number;缺段时 seg1/seg2 为 null(链路不完整),threeWayBalanced 无报表时为 null。
+export interface CurrencyRollup {
+  currency: string
+  seg1: ReportEntry | null
+  seg2: ReportEntry | null
+  threeWayConsistent: boolean
+  bridgeBrokenMinor: string
+}
+
+export interface ThreeWayReport {
+  runId: string
+  scenarioCode: string
+  accountingPeriod: string
+  status: string
+  threeWayBalanced: boolean | null
+  currencies: CurrencyRollup[]
+}
+
 export interface DiscrepancySummary {
   discrepancyId: string
   runId: string
@@ -126,6 +145,19 @@ export interface AlertEntry {
   attempt: number
   createdAt: string
   sentAt: string | null
+}
+
+// B5 冲正审批待办(富化):后端 controller join reversal_suggestion 补金额/币种/状态/血缘。
+// 金额一律十进制字符串(禁转 number);join miss 时业务字段为 null。
+export interface PendingApprovalView {
+  taskId: string
+  reversalId: string | null
+  createdAt: string
+  suggestedAmountMinor: string | null
+  currency: string | null
+  status: string | null
+  groupKey: string | null
+  runId: string | null
 }
 
 export interface DiscrepancyDetail {
@@ -182,4 +214,64 @@ export interface DispositionResponse {
   note: string | null
   version: number
   lastSeenRunId: string
+}
+
+// B4 配置驱动场景 · 场景定义 DSL(与后端 recon-scenario/dsl/ScenarioDefinition 对齐)。
+export type SourceRole = 'MARKETING' | 'ACCOUNTING' | 'CHANNEL'
+export type EvaluatorType = 'EXACT' | 'TOLERANCE' | 'DROOLS'
+export type DiscrepancyKind =
+  | 'BRIDGE_BROKEN'
+  | 'CURRENCY_MISMATCH'
+  | 'DUPLICATE'
+  | 'EXTRA'
+  | 'GROUP_SUM_MISMATCH'
+  | 'AMOUNT_MISMATCH'
+  | 'STATUS_MISMATCH'
+  | 'TIMING'
+  | 'MISSING'
+  | 'FX_RATE_DIFF'
+
+export interface ScenarioSource {
+  sourceType: string
+  params: Record<string, string>
+}
+
+export interface ScenarioRule {
+  evaluatorType: EvaluatorType
+  // 后端 long(最小货币单位);现实容差远小于 2^53。读侧经 JSON.parse,>2^53 会舍入(已知限制)。
+  absToleranceMinor: number
+  ratioToleranceBps: number
+  enabledTypes: DiscrepancyKind[] | null
+}
+
+export interface ScenarioSegment {
+  id: string
+  leftRole: SourceRole
+  rightRole: SourceRole
+  spineRole: SourceRole | null
+  stageLabel: string
+  matchKeyField: string
+  groupKeyField: string
+  left: ScenarioSource
+  right: ScenarioSource
+  rule: ScenarioRule
+}
+
+export interface ScenarioDefinition {
+  code: string
+  segments: ScenarioSegment[]
+}
+
+export interface ScenarioSummary {
+  code: string
+  version: number
+  enabled: boolean
+  segmentCount: number
+}
+
+export interface ScenarioView {
+  code: string
+  version: number
+  enabled: boolean
+  definition: ScenarioDefinition
 }

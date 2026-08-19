@@ -23,7 +23,6 @@ import com.lrj.recon.core.domain.model.EvaluatorType;
 import com.lrj.recon.core.domain.model.MatchGroup;
 import com.lrj.recon.core.domain.model.ReconRecord;
 import com.lrj.recon.core.domain.model.Side;
-import com.lrj.recon.core.domain.service.EvaluatorFactory;
 import com.lrj.recon.core.spi.SourceAdapter;
 import com.lrj.recon.core.spi.SourceDescriptor;
 import com.lrj.recon.core.spi.SourceReadContext;
@@ -384,6 +383,7 @@ public class MarketingThreeWayConfig {
     @Bean
     @StepScope
     public EvaluateProcessor m4EvaluateProcessor(
+            EvaluatorResolver evaluatorResolver,
             @Value("#{stepExecutionContext['runId']}") String runId,
             @Value("#{stepExecutionContext['segmentId']}") String segmentId,
             @Value("#{stepExecutionContext['scenarioCode']}") String scenarioCode,
@@ -398,8 +398,8 @@ public class MarketingThreeWayConfig {
                 .matchWindowFrom(Instant.ofEpochMilli(windowFrom))
                 .matchWindowTo(Instant.ofEpochMilli(windowTo))
                 .build();
-        // 判差器按段规则路由 (EXACT/TOLERANCE; DROOLS fail-fast) —— EvaluatorFactory 单一装配口。
-        return new EvaluateProcessor(EvaluatorFactory.create(def.rule().evaluatorType()), def.rule(), evalCtx);
+        // 判差器按段规则路由 (EXACT/TOLERANCE; DROOLS 经 recon-rules-drools, 未启用则 fail-fast)。
+        return new EvaluateProcessor(evaluatorResolver.resolve(def.rule().evaluatorType()), def.rule(), evalCtx);
     }
 
     @Bean

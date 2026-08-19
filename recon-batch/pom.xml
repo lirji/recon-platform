@@ -38,6 +38,16 @@
             <groupId>com.lrj.recon</groupId>
             <artifactId>recon-handler</artifactId>
         </dependency>
+        <!-- B2: Drools 判差策略层 (外圈)。org.kie/org.drools 封装在此模块内, 组合根只经其公开 SPI 装配。 -->
+        <dependency>
+            <groupId>com.lrj.recon</groupId>
+            <artifactId>recon-rules-drools</artifactId>
+        </dependency>
+        <!-- B5: Flowable 冲正审批工作流 (外圈)。org.flowable 封装在此模块内, 组合根只经其门面装配 (条件加载)。 -->
+        <dependency>
+            <groupId>com.lrj.recon</groupId>
+            <artifactId>recon-workflow-flowable</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>

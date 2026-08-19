@@ -28,6 +28,8 @@
         <module>recon-source-csv</module>
         <module>recon-scenario</module>
         <module>recon-handler</module>
+        <module>recon-rules-drools</module>
+        <module>recon-workflow-flowable</module>
         <module>recon-batch</module>
     </modules>
 
@@ -74,6 +76,16 @@
             <dependency>
                 <groupId>com.lrj.recon</groupId>
                 <artifactId>recon-handler</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.lrj.recon</groupId>
+                <artifactId>recon-rules-drools</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.lrj.recon</groupId>
+                <artifactId>recon-workflow-flowable</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>

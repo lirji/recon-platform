@@ -1,11 +1,15 @@
 package com.lrj.recon.batch.persistence;
 
 import com.lrj.recon.core.application.port.out.ReversalSuggestionRepository;
+import com.lrj.recon.core.domain.model.ReversalStatus;
 import com.lrj.recon.core.domain.model.ReversalSuggestion;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
 
 /**
  * {@link ReversalSuggestionRepository} 的 JDBC 实现 (按 {@code uk_rev(idempotency_key)} 幂等)。
@@ -34,5 +38,36 @@ public class JdbcReversalSuggestionStore implements ReversalSuggestionRepository
                     s.id(), s.fingerprint(), s.runId(), s.groupKey(),
                     s.suggestedAmountMinor(), s.currency(), s.status().name(),
                     s.idempotencyKey(), s.operator(), SqlTimes.ts(createdAt)));
+    }
+
+    @Override
+    public int updateStatus(String id, ReversalStatus status, String operator, String note) {
+        // decision_note = COALESCE(?, decision_note): note=null (如 B3 执行) 时保留已有审批留痕, 不抹掉 (ADR-7)。
+        return jdbc.update(
+                "UPDATE reversal_suggestion SET status = ?, operator = ?,"
+                + " decision_note = COALESCE(?, decision_note) WHERE id = ?",
+                status.name(), operator, note, id);
+    }
+
+    private static final RowMapper<ReversalSuggestion> MAPPER = (rs, i) -> ReversalSuggestion.builder()
+            .id(rs.getString("id"))
+            .fingerprint(rs.getString("fingerprint"))
+            .runId(rs.getString("run_id"))
+            .groupKey(rs.getString("group_key"))
+            .suggestedAmountMinor(rs.getLong("suggested_amount_minor"))
+            .currency(rs.getString("currency"))
+            .status(ReversalStatus.valueOf(rs.getString("status")))
+            .idempotencyKey(rs.getString("idempotency_key"))
+            .operator(rs.getString("operator"))
+            .createdAt(SqlTimes.instant(rs, "created_at"))
+            .build();
+
+    @Override
+    public Optional<ReversalSuggestion> find(String id) {
+        List<ReversalSuggestion> rows = jdbc.query(
+                "SELECT id, fingerprint, run_id, group_key, suggested_amount_minor, currency, status,"
+                + " idempotency_key, operator, created_at FROM reversal_suggestion WHERE id = ?",
+                MAPPER, id);
+        return rows.stream().findFirst();
     }
 }

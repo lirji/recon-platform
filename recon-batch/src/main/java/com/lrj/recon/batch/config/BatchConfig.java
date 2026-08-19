@@ -33,7 +33,6 @@ import com.lrj.recon.core.domain.model.MatchGroup;
 import com.lrj.recon.core.domain.model.ReconRecord;
 import com.lrj.recon.core.domain.model.Side;
 import com.lrj.recon.core.domain.service.ConservationMerger;
-import com.lrj.recon.core.domain.service.ExactEvaluator;
 import com.lrj.recon.core.spi.SourceAdapter;
 import com.lrj.recon.core.spi.SourceReadContext;
 import org.springframework.batch.core.Job;
@@ -285,6 +284,7 @@ public class BatchConfig {
     @Bean
     @StepScope
     public EvaluateProcessor evaluateProcessor(
+            EvaluatorResolver evaluatorResolver,
             @Value("#{stepExecutionContext['runId']}") String runId,
             @Value("#{stepExecutionContext['scenarioCode']}") String scenarioCode,
             @Value("#{stepExecutionContext['accountingPeriod']}") String accountingPeriod,
@@ -297,7 +297,8 @@ public class BatchConfig {
                 .matchWindowFrom(Instant.ofEpochMilli(windowFrom))
                 .matchWindowTo(Instant.ofEpochMilli(windowTo))
                 .build();
-        return new EvaluateProcessor(new ExactEvaluator(), plan.rule(), evalCtx);
+        // 经 EvaluatorResolver 单一装配口 (EXACT/TOLERANCE 纯 core; DROOLS 走 recon-rules-drools, 未启用则 fail-fast)。
+        return new EvaluateProcessor(evaluatorResolver.resolve(plan.rule().evaluatorType()), plan.rule(), evalCtx);
     }
 
     @Bean

@@ -18,6 +18,7 @@ public final class EvaluationContext {
     private final String stageLabel;         // "SEG1" | "SEG2"
     private final Instant matchWindowFrom;   // T (可空 → 不做窗口约束)
     private final Instant matchWindowTo;     // T+1
+    private final long fxToleranceMinor;     // B6: 跨币基准额容差(基准币最小单位); 0=严格, 任何基准差即 FX_RATE_DIFF
 
     private EvaluationContext(Builder b) {
         this.runId = b.runId;
@@ -30,6 +31,7 @@ public final class EvaluationContext {
         this.stageLabel = b.stageLabel;
         this.matchWindowFrom = b.matchWindowFrom;
         this.matchWindowTo = b.matchWindowTo;
+        this.fxToleranceMinor = b.fxToleranceMinor;
     }
 
     public static Builder builder() {
@@ -57,6 +59,8 @@ public final class EvaluationContext {
     public Instant matchWindowFrom() { return matchWindowFrom; }
     public Instant matchWindowTo() { return matchWindowTo; }
 
+    public long fxToleranceMinor() { return fxToleranceMinor; }
+
     public boolean hasWindow() {
         return matchWindowFrom != null && matchWindowTo != null;
     }
@@ -72,6 +76,7 @@ public final class EvaluationContext {
         private String stageLabel;
         private Instant matchWindowFrom;
         private Instant matchWindowTo;
+        private long fxToleranceMinor;
 
         public Builder runId(String v) { this.runId = v; return this; }
         public Builder scenarioCode(String v) { this.scenarioCode = v; return this; }
@@ -83,6 +88,7 @@ public final class EvaluationContext {
         public Builder stageLabel(String v) { this.stageLabel = v; return this; }
         public Builder matchWindowFrom(Instant v) { this.matchWindowFrom = v; return this; }
         public Builder matchWindowTo(Instant v) { this.matchWindowTo = v; return this; }
+        public Builder fxToleranceMinor(long v) { this.fxToleranceMinor = v; return this; }
 
         public EvaluationContext build() {
             return new EvaluationContext(this);

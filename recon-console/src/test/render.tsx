@@ -33,7 +33,11 @@ export function mockAuth(overrides: Partial<UserSession> = {}): AuthContextValue
   }
 }
 
-export function renderApp(element: ReactElement, auth: AuthContextValue = mockAuth()) {
+export function renderApp(
+  element: ReactElement,
+  auth: AuthContextValue = mockAuth(),
+  initialEntries: string[] = ['/'],
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
@@ -43,7 +47,9 @@ export function renderApp(element: ReactElement, auth: AuthContextValue = mockAu
         <App>
           <QueryClientProvider client={queryClient}>
             <AuthContext.Provider value={auth}>
-              <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>{children}</MemoryRouter>
+              <MemoryRouter initialEntries={initialEntries} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+                {children}
+              </MemoryRouter>
             </AuthContext.Provider>
           </QueryClientProvider>
         </App>

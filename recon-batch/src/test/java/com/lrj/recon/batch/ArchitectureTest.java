@@ -14,7 +14,8 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
  *       job 层的 reader/writer/tasklet 走 recon-core 端口, 不直接碰 JDBC;</li>
  *   <li>M2 起<b>允许</b> Spring Batch, 但限定在 {@code ..job..} / {@code ..config..} (Job/Step 编排 + 组件),
  *       不泄漏到 {@code ..persistence..};</li>
- *   <li>CSV 解析实现留在 recon-source-csv，组合根只依赖其公开适配器；Drools / Flowable 仍未引入。</li>
+ *   <li>CSV 解析实现留在 recon-source-csv，组合根只依赖其公开适配器；B2 起 Drools 判差封装在 recon-rules-drools,
+ *       组合根只经其公开 SPI 装配, <b>不直接 import {@code org.kie}/{@code org.drools}</b>;Flowable 仍未引入。</li>
  * </ul>
  */
 @AnalyzeClasses(packages = "com.lrj.recon.batch", importOptions = ImportOption.DoNotIncludeTests.class)
@@ -40,5 +41,6 @@ class ArchitectureTest {
                     "com.opencsv..",
                     "org.apache.commons.csv..",
                     "org.flowable..")
-            .as("组合根不直接解析 CSV，且未引入 Drools/Flowable");
+            .as("组合根不直接解析 CSV / 不直接依赖 org.kie·org.drools·org.flowable"
+                    + " (Drools 封装在 recon-rules-drools、Flowable 封装在 recon-workflow-flowable,组合根只经其门面装配)");
 }

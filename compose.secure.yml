@@ -1,0 +1,38 @@
+# secure 叠加层: 启用 Casdoor 统一登录(A1)。
+#
+# 复用 auth-platform 的共享 Casdoor(容器 authz-casdoor, 宿主 http://localhost:8000);recon 是它的一个租户
+# (organization=recon-platform, 共享应用 client_id=<base>-org-recon-platform)。开通见:
+#   auth-platform/deploy/recon-platform-provision.sh   (幂等: org/回调/用户/角色/权限 + token 校验)
+#
+# - 后端: SPRING_PROFILES_ACTIVE=secure → CasdoorSecurityConfig(OAuth2 Resource Server, JWKS 验签 + issuer +
+#   audience allowlist + owner + 非空 sub; 授权按 permissions recon.read/dispose/launch)。
+#   issuer 用宿主 URL(匹配 token iss, 仅字符串比对不联网);JWKS 用 host.docker.internal(容器内可达宿主 8000)。
+# - 前端: 以 oidc 模式重新构建(授权码 + PKCE), 走登录页 → Casdoor → /auth/callback。
+#
+# 叠加在基座 + MySQL 之上:
+#   docker compose -f compose.yml -f compose.mysql.yml -f compose.secure.yml up -d --build
+# 或一键:  ./deploy.sh --secure
+name: recon-platform
+
+services:
+  backend:
+    environment:
+      SPRING_PROFILES_ACTIVE: secure
+      # token iss = Casdoor origin(宿主可见 URL);后端仅做字符串校验, 不据此联网。
+      RECON_AUTH_ISSUER: ${RECON_AUTH_ISSUER:-http://localhost:8000}
+      # 容器内取验签公钥须走 host-gateway(不能用 localhost, 那是容器自身)。
+      RECON_AUTH_JWK_SET_URI: ${RECON_AUTH_JWK_SET_URI:-http://host.docker.internal:8000/.well-known/jwks}
+      RECON_AUTH_ORG: ${RECON_AUTH_ORG:-recon-platform}
+      RECON_AUTH_AUDIENCES: ${RECON_AUTH_AUDIENCES:-ragshared0client00000001-org-recon-platform}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  console:
+    build:
+      args:
+        VITE_AUTH_MODE: oidc
+        VITE_CASDOOR_SERVER_URL: ${VITE_CASDOOR_SERVER_URL:-http://localhost:8000}
+        VITE_CASDOOR_CLIENT_ID: ${VITE_CASDOOR_CLIENT_ID:-ragshared0client00000001-org-recon-platform}
+        VITE_CASDOOR_ORGANIZATION: ${VITE_CASDOOR_ORGANIZATION:-recon-platform}
+        VITE_CASDOOR_APP_NAME: ${VITE_CASDOOR_APP_NAME:-rag-shared}
+        VITE_CASDOOR_SCOPE: ${VITE_CASDOOR_SCOPE:-openid profile offline_access}

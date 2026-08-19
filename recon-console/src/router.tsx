@@ -9,6 +9,10 @@ import { RequireAuth, RequireGuest } from './auth/RequireAuth'
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((m) => ({ default: m.DashboardPage })))
 const RunsPage = lazy(() => import('./pages/RunsPage').then((m) => ({ default: m.RunsPage })))
 const DiscrepanciesPage = lazy(() => import('./pages/DiscrepanciesPage').then((m) => ({ default: m.DiscrepanciesPage })))
+const ScenariosPage = lazy(() => import('./pages/ScenariosPage').then((m) => ({ default: m.ScenariosPage })))
+const ReversalApprovalsPage = lazy(() =>
+  import('./pages/ReversalApprovalsPage').then((m) => ({ default: m.ReversalApprovalsPage })),
+)
 const LoginPage = lazy(() => import('./pages/LoginPage').then((m) => ({ default: m.LoginPage })))
 const CallbackPage = lazy(() => import('./pages/CallbackPage').then((m) => ({ default: m.CallbackPage })))
 const ForbiddenPage = lazy(() => import('./pages/ForbiddenPage').then((m) => ({ default: m.ForbiddenPage })))
@@ -44,6 +48,8 @@ export const router = createBrowserRouter([
               { path: 'dashboard', element: lazyRoute(<DashboardPage />) },
               { path: 'runs', element: lazyRoute(<RunsPage />) },
               { path: 'discrepancies', element: lazyRoute(<DiscrepanciesPage />) },
+              { path: 'scenarios', element: lazyRoute(<ScenariosPage />) },
+              { path: 'reversal-approvals', element: lazyRoute(<ReversalApprovalsPage />) },
             ],
           },
         ],

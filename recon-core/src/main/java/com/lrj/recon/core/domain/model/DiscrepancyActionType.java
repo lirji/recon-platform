@@ -11,6 +11,8 @@ public enum DiscrepancyActionType {
     LEDGER,
     /** 生成冲正建议 (无资金动作)。 */
     REVERSAL_SUGGESTION,
+    /** B3 冲正执行 (CONFIRMED→EXECUTED, 真实资金动作由 ReversalExecutor 完成)。 */
+    REVERSAL_EXECUTED,
     /** 告警入 outbox (外部副作用, 批后中继投递)。 */
     ALERT,
     MANUAL_RESOLVE,

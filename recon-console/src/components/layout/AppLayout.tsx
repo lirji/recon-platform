@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertOutlined, AuditOutlined, DashboardOutlined, MenuFoldOutlined, MenuOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
+import { AlertOutlined, AuditOutlined, DashboardOutlined, MenuFoldOutlined, MenuOutlined, MenuUnfoldOutlined, SettingOutlined, SolutionOutlined } from '@ant-design/icons'
 import { Breadcrumb, Button, Drawer, Grid, Layout, Menu, Space } from 'antd'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { colors } from '../../theme/colors'
@@ -9,6 +9,8 @@ const navigation = [
   { key: '/dashboard', label: '工作台', icon: <DashboardOutlined /> },
   { key: '/runs', label: '运行管理', icon: <AuditOutlined /> },
   { key: '/discrepancies', label: '差异处理', icon: <AlertOutlined /> },
+  { key: '/reversal-approvals', label: '冲正审批', icon: <SolutionOutlined /> },
+  { key: '/scenarios', label: '场景管理', icon: <SettingOutlined /> },
 ]
 
 export function AppLayout() {

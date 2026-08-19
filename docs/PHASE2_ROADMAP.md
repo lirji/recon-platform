@@ -75,56 +75,92 @@
 
 > 阶段二 Non-goals,字段/接口已留位。把「营销三方专用」推向「通用对账平台」,按价值/依赖排。
 
-### B1 · 三方合并只读视图 — P1(速赢)· 工作量 S–M — 🟡 后端 ✅ / 前端待 frontend-plan
+### B1 · 三方合并只读视图 — P1(速赢)· 工作量 S–M — ✅ 已完成(后端 + 前端,2026-08-19)
 
 - **原现状**:MVP 只出两段独立报表。
 - **已交付(后端只读 API)**:`GET /recon/runs/{id}/three-way` → `ThreeWayReport`。由一个 Run 的两段报表(SEG1 营销↔账务、SEG2 账务↔渠道)**派生**单一三方 roll-up,纯读、无新 SQL、无算法风险。
   - **口径**(设计 A2 只把合并归阶段二未定细则,此处为阶段二取定并显式标注):`threeWayConsistent` = 每币种两段均在且均 balanced(**布尔与,不跨段求和金额**——spine 账务侧被两段共享,相加会重复计;故只合成状态,原始各段金额并列供下钻);`bridgeBrokenMinor` = 两段桥断额之和(两个独立断点阶段);`threeWayBalanced` = 所有币种皆 consistent。
   - **落地**:`service/ReconConsoleQueryService.threeWayRollup`、`service/ReconConsoleQueryRepository`(ThreeWayReport/CurrencyRollup DTO)、`web/ReconConsoleController`、测试 `web/ThreeWayRollupTest`。
-- **待做(前端页)**:三方 roll-up 摘要页/区块,按全局规范先走 **frontend-plan**(计划批准前不写码)。
+- **已交付(前端页)**:`RunDetailDrawer` 内 Tabs「守恒报表/三方合并」(懒加载,仅 `MARKETING_3WAY` 显示);三态一致性 banner + 每币种 Card(两段 Row/Col 并列、桥断额)+ 按段 `BRIDGE_BROKEN` 下钻链接(`DiscrepanciesPage` 接 `useSearchParams` 播种)。金额全程字符串/BigInt。计划见 `docs/plans/b1-three-way-frontend-0819-1109/`。测试:Vitest 16/16 + Playwright 双 project 冒烟。
 - **依赖**:无(纯读)。
 
-### B2 · Drools 规则引擎 — P1 · 工作量 M–L
+### B2 · Drools 规则引擎 — P1 · 工作量 M–L — ✅ 已完成(2026-08-19)
 
-- **现状**:`DroolsEvaluator` 仅接口,`EvaluatorFactory` 遇 DROOLS fail-fast。
-- **要做**:落地 DiscrepancyEvaluator 阶段二,让判差 / 分类规则**可配置化**,不改代码调规则。
+- **原现状**:`DroolsEvaluator` 仅接口,`EvaluatorFactory` 遇 DROOLS fail-fast。
+- **已交付**:
+  - **新外圈模块 `recon-rules-drools`**(依赖仅 recon-core;`org.kie/org.drools` 封装其内,组合根 ArchUnit 仍禁直接依赖)。
+  - **`DroolsDiscrepancyEvaluator`(策略层)**:先跑 core `DiscrepancyClassifier` 得候选(保留 fingerprint/bridge/守恒等安全关键构造),再由 DRL 规则对候选 **suppress/改判**;改判时按新 type 重算 fingerprint。**默认规则集 `discrepancy-default.drl` ≡ Exact+enable+tolerance**,parity 测试锁定。
+  - **fail-fast**:DRL 编译失败→构造/启动抛异常;运行期规则异常上抛;不做静默回退。
+  - **组合根装配**:`EvaluatorResolver`(EXACT/TOLERANCE→core;DROOLS→注入 bean,未启用则 fail-fast)+ `RulesConfig`(`recon.rules.drools.enabled` 门控,`extra-classpath` 叠加 ops 自定义 DRL);BatchConfig/MarketingThreeWayConfig 统一经 resolver。
+  - **配置化能力**:段配 `evaluator-type=DROOLS` + 追加 DRL 即改判差行为,**不改 Java**(通向 B4)。
+- **落地**:`recon-rules-drools/`(evaluator/fact/DRL/ArchUnit + parity/policy/fail-fast 测试)、`recon-batch/.../config/{EvaluatorResolver,RulesConfig}.java` + 两处 config 接线、`application.yml`(recon.rules.drools)。
+- **验证**:全量 `./mvnw test` 8 模块绿(recon-rules-drools 10 + recon-batch 111,含 `DroolsWiringTest` 启动期编译验证)。
 - **依赖**:接口已留,无硬前置;是 B4 配置驱动的组成部分。
 
-### B4 · 配置驱动场景 / DSL 规则平台 — P2(核心卖点,工作量最大)· 工作量 XL
+### B4 · 配置驱动场景 / DSL 规则平台 — P2(核心卖点,工作量最大)· 工作量 XL — ✅ 已完成(后端平台 + 管理 UI,2026-08-19)
 
-- **现状**:场景硬编码装配(`recon-scenario`)。
-- **要做**:**不改代码接入新对账场景** —— 平台核心卖点。需配置存储 + 场景装配 DSL + 管理 UI。
-- **依赖**:受益于 B2(规则)+ A1(角色)+ 管理 UI;放在有前置铺垫后。
+- **原现状**:场景硬编码装配(`recon-scenario`)。
+- **分 4 期**(设计与进度见 `docs/plans/b4-config-driven-0819/DESIGN.md`):
+  - **Phase 1 ✅ 声明式模型 + 通用装配器**:`recon-scenario/dsl/` 的 `ScenarioDefinition` + `GenericScenarioAssembler`,parity 锁定「数据装配 MARKETING_3WAY ≡ 硬编码」。
+  - **Phase 2 ✅ 配置存储**:Flyway `V4 recon_scenario_def` + `ScenarioDefinitionCodec`(Jackson + 装配校验)+ `JdbcScenarioDefinitionStore`。
+  - **Phase 3a ✅ 种子入库**:`MarketingThreeWayDefinition.seed()` + `ScenarioDefinitionSeeder`(启动幂等 seed);「场景=数据」在管理层成立,未改发起路径。
+  - **Phase 3b ✅ 通用执行引擎(XL 核心)**:`ConfigScenarioService` + 动态 `genericReconJob`(`GenericReconJobConfig` + `SegmentStampListener`,每 run 按 scenarioCode 从配置装配)+ `ReconLaunchService` 路由(内置→硬编码 job;配置场景→通用引擎;未知 fail-fast)。**`NewScenarioConfigDrivenTest` 证明 Java 零硬编码场景码 `MKT_3WAY_V2` 纯配置端到端跑通**;`GenericReconJobParityTest` 证明通用引擎 ≡ 硬编码。仅剩形态限制(固定 2 段)。
+  - **Phase 4 ✅ 后端 API + 管理 UI**:后端 `ScenarioAdminController`(list/get/put,读 recon.read / 写 recon.launch,装配校验);前端 recon-console「场景管理」页(`/scenarios` 列表 + `ScenarioEditorDrawer` 编辑抽屉,JSON `Input.TextArea` + **原始文本提交**根治金额精度、写操作 `can('recon.launch')` 门控)。经 frontend-plan 全流程(五路子代理→决策记录→计划→独立评审→用户批准),计划见 `docs/plans/b4-scenario-ui-0819-1243/`。pnpm test 25/25 + build + e2e 6/6(双视口)。
+  - **Phase 4 ⏳ 管理 UI**:场景 CRUD 页(走 frontend-plan,权限 `recon.admin`)。
+- **依赖**:受益于 B2(规则,已完成)+ A1(角色,已完成)+ 管理 UI。
 
-### B5 · Flowable 工单落地 — P2 · 工作量 M–L
+### B5 · Flowable 工单落地 — P2 · 工作量 M–L — ✅ 已完成(2026-08-19)
 
-- **现状**:`recon-handler` 中仅 Flowable 占位。
-- **要做**:落地处置 / 冲正审批工作流。
-- **依赖**:与 B3 互为支撑;**需 A1 鉴权**。
+- **原现状**:`recon-handler` 中仅 Flowable no-op 占位。
+- **已交付**:**新外圈模块 `recon-workflow-flowable`**(`org.flowable` 封装其内,组合根 ArchUnit 仍禁直接依赖)——
+  Flowable BPMN **冲正审批工作流**(`reversal-approval.bpmn20.xml`:提交 → 人工审批 UserTask → gateway → CONFIRMED/DISCARDED),
+  `ReversalApprovalWorkflow`(submit/listPending/decide)+ 结束监听器经 `ReversalDecisionSink` 回写 `reversal_suggestion.status`(ADR-7 只改状态)。
+  引擎 **config 门控默认关**(`recon.workflow.flowable.enabled`),用**独立引擎 DB**(避与业务 H2 MODE=MySQL 冲突、不触发 DataSource 自动配置退避);未启用调 API fail-fast。
+  组合根 `WorkflowConfig`(条件装配)+ `ReversalApprovalController`(读 recon.read / 提交·审批 recon.dispose)。
+- **落地**:`recon-workflow-flowable/*`、`recon-core` `ReversalSuggestionRepository.updateStatus` + JDBC 实现、`recon-batch/.../config/WorkflowConfig`、`web/ReversalApprovalController`、安全 matcher。
+- **验证**:模块隔离 `ReversalApprovalWorkflowTest` 3/3 + ArchUnit;组合根门控 `ReversalApprovalWorkflowIT` 2/2(approve→CONFIRMED / reject→DISCARDED)。全量 9 模块绿,默认关时对既有 128 测试零影响。
+- **依赖**:A1 鉴权(已就绪);为 B3 审批环节铺路。**诚实边界**:仅冲正审批打样(处置核销仍走 ManualClearingService);资金动作归 B3;单级审批;前端审批页后续。
 
-### B3 · 自动冲正执行 + 审批 — P2(高价值高风险)· 工作量 L
+### B3 · 自动冲正执行 + 审批 — P2(高价值高风险)· 工作量 L — ✅ 已完成(2026-08-19)
 
-- **现状**:冲正只生成 `SUGGESTED`,无资金动作。
-- **要做**:从「只生成建议」升级到审批流 + 真实资金动作。
-- **依赖**:**强依赖 A1(谁有权批钱)** + B5 工单;须在 auth 与工单就绪后做。
+- **原现状**:冲正只生成 `SUGGESTED`,无资金动作。
+- **已交付**:冲正生命周期打通 `SUGGESTED → CONFIRMED/DISCARDED`(B5 审批)`→ EXECUTED/EXECUTION_FAILED`(B3 执行)。
+  - **`ReversalExecutor` SPI(recon-core)**:全系统唯一真正动钱的插件;默认 `LoggingReversalExecutor`**不动真钱**(仅日志),生产以 `@Primary` 接真实清结算适配器覆盖(同 `AlertDispatcher` 范式)。
+  - **`ReversalExecutionService`(编排)**:护栏 —— 仅 `CONFIRMED` 可执行(非 CONFIRMED fail-fast);已 `EXECUTED` 幂等跳过(不重复动钱);审批(B5,recon.dispose)与执行(recon.launch)**两个独立控制点**;执行器失败置 `EXECUTION_FAILED` 不吞异常;审计 `discrepancy_action(REVERSAL_EXECUTED)`。
+  - **REST** `POST /recon/reversal-executions/{id}/execute`(recon.launch);`ReversalStatus` 加 EXECUTED/EXECUTION_FAILED;`ReversalSuggestionRepository.find/updateStatus`。
+- **落地**:`recon-core` `spi/ReversalExecutor`、`ReversalStatus`、`DiscrepancyActionType.REVERSAL_EXECUTED`、端口扩展;`recon-batch` `service/{LoggingReversalExecutor,ReversalExecutionService}`、`web/ReversalExecutionController`、JDBC find、安全 matcher。
+- **验证**:`ReversalExecutionServiceTest` 5/5(执行/拒绝/幂等/未找到/失败);全量 9 模块绿(recon-batch 136)。
+- **依赖**:A1 鉴权 + B5 工单(均已就绪)。**诚实边界**:真实清结算适配器是可插拔集成点(不在本仓库,同 AlertDispatcher);执行为显式触发(不随审批自动动钱,安全)。
 
-### B6 · 跨币种换算 + FX_RATE_DIFF — P3(自包含)· 工作量 M
+### B6 · 跨币种换算 + FX_RATE_DIFF — P3(自包含)· 工作量 M — ✅ 已完成(2026-08-19)
 
-- **现状**:`fx_rate` / `base_amount_minor` 字段已留,只读不参与比较。
-- **要做**:汇率换算 + 容差 + FX_RATE_DIFF 判定;自包含算法,只在多币种对账才需要。
-- **依赖**:无。
+- **原现状**:`fx_rate` / `base_amount_minor` 字段已留,只读不参与比较。
+- **已交付**:`MatchGroup` 新增按侧基准币金额聚合(`GroupAggregator.sumBase`,某侧任一记录缺 base 则该侧为 null);
+  `EvaluationContext.fxToleranceMinor`;`DiscrepancyClassifier` 跨币分支细化 —— 两侧基准额均可用时,`|左基准-右基准|≤容差` 视为汇率对上(干净匹配),超容差判 **FX_RATE_DIFF**(激活既有留位枚举);无基准额退回 `CURRENCY_MISMATCH`(原行为)。
+  **守恒不受影响**:FX_RATE_DIFF 只是跨币分支的诊断细化,左右原币额仍分落各自币种桶。
+- **落地**:`recon-core` `MatchGroup`(base 字段)、`GroupAggregator`、`EvaluationContext`、`DiscrepancyClassifier`(fxRateDiff 分支)。
+- **验证**:`FxRateDiffClassifierTest` 4/4(容差内匹配 / 超容差 FX_RATE_DIFF / 无基准回退 / 严格 0 容差);全量 9 模块绿零回归(既有跨币测试无 base → 行为不变)。
+- **依赖**:无。**诚实边界**:base_amount_minor 由上游装载填充(源投影层接汇率),本期只做「有基准额则按基准额判」的判定侧;不做汇率获取/换算本身(接汇率源属装载层)。
 
-### B7 · 1:N 明细下钻 + SEG2 roll-up — P3 · 工作量 M
+### B7 · 1:N 明细下钻 + SEG2 roll-up — P3 · 工作量 M — 🟢 明细下钻已完成(2026-08-19)
 
-- **现状**:只到发放单级总额。
-- **要做**:明细级下钻 + SEG2 发放单跨渠道流水号 roll-up。
+- **原现状**:只到发放单级总额。
+- **已交付(明细下钻)**:只读 `GET /recon/runs/{id}/records?segmentId=&groupKey=`(recon.read)→ 组底层 staged `recon_record` 明细(左右两侧,金额十进制字符串,有界 500 + truncated 标记)。从「组级总额」下钻到「逐条记录」,对任意段/group_key 通用(SEG2 按 channel_serial_no 下钻天然覆盖)。
+  - **落地**:`ReconConsoleQueryRepository`(`GroupRecordDetail/GroupRecordReport` DTO + `findGroupRecords`)、`JdbcReconConsoleQueryStore`、`ReconConsoleQueryService.groupRecords`、`ReconConsoleController`。测试 `GroupRecordsDrillDownTest` 2/2;9 模块绿。
+- **⏳ 剩余**:SEG2 **按发放单(order_no)跨渠道流水号**的 roll-up —— 需 spine 账务的 order_no↔channel_serial_no 映射做跨段聚合(比单段下钻复杂),作为后续小项;通用明细下钻已覆盖核心价值。
 - **依赖**:无强前置。
 
-### B8 · Flink / Kafka 流式 — P4(远期)· 工作量 XL
+### B8 · Flink / Kafka 流式 — P4(远期)· 工作量 XL — 🟢 流式内核已落地(2026-08-19)
 
-- **现状**:批处理(Spring Batch)。
-- **要做**:从批处理转近实时 / 流式对账,基础设施大改。
-- **依赖**:最低优先 —— 除非有明确实时对账需求。
+- **原现状**:批处理(Spring Batch)。
+- **已交付(流式内核 walking-skeleton)**:`StreamingReconciler`(recon-core 纯领域)——逐条 `accept` 增量按 match_key 累计
+  (不全量 load,只持流式聚合,守恒红线一致),窗口 `flush` 复用**与批完全相同**的 `GroupAggregator + DiscrepancyClassifier`
+  → 流式结果与批逐条一致(同一判差内核,无第二套逻辑);null 键逐条单边路由。测试 `StreamingReconcilerTest` 3/3
+  (增量→flush 与批一致 / null 键单边 / 多行组聚合);recon-core 纯度门禁未破,9 模块绿。
+- **⏳ 诚实边界(基础设施属集成点,不在本仓库)**:真正的分布式流式运行时(Kafka 源 topic + Flink 作业 + exactly-once
+  状态后端 + 事件时间/水位线/迟到处理)是可插拔集成层,由外部驱动 `accept()`/`flush()`。本期落地领域内核(批/流共享判差不变量),
+  未引入 Kafka/Flink 依赖(P4 远期、条件性「除非有明确实时对账需求」,不为其重构基础设施)。
+- **依赖**:最低优先。
 
 ---
 

@@ -36,12 +36,33 @@ const dispositionColors: Record<string, string> = {
   STALE: 'default',
 }
 
+// B5 冲正建议/审批状态(后端权威枚举含全 5 态,勿漏 EXECUTION_FAILED)。审批页正常出现 SUGGESTED/CONFIRMED/DISCARDED。
+const reversalLabels: Record<string, string> = {
+  SUGGESTED: '待审批',
+  CONFIRMED: '已通过',
+  DISCARDED: '已驳回',
+  EXECUTED: '已执行',
+  EXECUTION_FAILED: '执行失败',
+}
+
+const reversalColors: Record<string, string> = {
+  SUGGESTED: 'warning',
+  CONFIRMED: 'processing',
+  DISCARDED: 'default',
+  EXECUTED: 'success',
+  EXECUTION_FAILED: 'error',
+}
+
 export function RunStatusTag({ status }: { status: string }) {
   return <Tag color={runColors[status] || 'default'}>{runLabels[status] || status}</Tag>
 }
 
 export function DispositionStatusTag({ status }: { status: string }) {
   return <Tag color={dispositionColors[status] || 'default'}>{dispositionLabels[status] || status}</Tag>
+}
+
+export function ReversalStatusTag({ status }: { status: string }) {
+  return <Tag color={reversalColors[status] || 'default'}>{reversalLabels[status] || status}</Tag>
 }
 
 export const discrepancyTypeLabels: Record<string, string> = {

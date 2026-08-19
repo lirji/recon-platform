@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../api/client'
-import { closeDiscrepancy, getDiscrepancy, resolveDiscrepancy } from '../../api/recon'
-import type { ClearRequest, DiscrepancySummary } from '../../api/types'
+import { closeDiscrepancy, getDiscrepancy, resolveDiscrepancy, submitReversalApproval } from '../../api/recon'
+import type { ClearRequest, DiscrepancySummary, ReversalEntry } from '../../api/types'
 import { useAuth } from '../../auth/AuthContext'
 import { App, Alert, Button, Collapse, Descriptions, Divider, Drawer, Empty, Form, Grid, Input, Modal, Space, Table, Timeline, Typography } from 'antd'
 import { CheckCircleOutlined, StopOutlined } from '@ant-design/icons'
@@ -66,6 +66,22 @@ export function DiscrepancyDetailDrawer({ discrepancyId, onClose }: Props) {
       if (error instanceof ApiError && error.status === 409) {
         message.warning('处置状态已被其他操作更新，已为你刷新详情')
         await queryClient.invalidateQueries({ queryKey: ['discrepancy-detail', discrepancyId] })
+      } else {
+        message.error(errorMessage(error))
+      }
+    },
+  })
+
+  // B5: 把 SUGGESTED 冲正建议提交进审批流(唯一持 reversalId=ReversalEntry.id 的入口)。
+  const submitApproval = useMutation({
+    mutationFn: (reversalId: string) => submitReversalApproval(reversalId),
+    onSuccess: async () => {
+      message.success('已提交审批,请到「冲正审批」处理')
+      await queryClient.invalidateQueries({ queryKey: ['discrepancy-detail', discrepancyId] })
+    },
+    onError: (error) => {
+      if (error instanceof ApiError && error.code === 'illegal_transition') {
+        message.error('审批工作流未启用,无法提交审批')
       } else {
         message.error(errorMessage(error))
       }
@@ -163,6 +179,23 @@ export function DiscrepancyDetailDrawer({ discrepancyId, onClose }: Props) {
                         { title: '建议金额', render: (_, row) => formatMinor(row.suggestedAmountMinor, row.currency) },
                         { title: 'Run ID', dataIndex: 'runId', render: (value: string) => <span className="mono">{value}</span> },
                         { title: '生成时间', dataIndex: 'createdAt', render: formatDateTime },
+                        ...(canDispose
+                          ? [
+                              {
+                                title: '操作',
+                                render: (_: unknown, row: ReversalEntry) =>
+                                  row.status === 'SUGGESTED' ? (
+                                    <Button
+                                      type="link"
+                                      loading={submitApproval.isPending}
+                                      onClick={() => submitApproval.mutate(row.id)}
+                                    >
+                                      提交审批
+                                    </Button>
+                                  ) : null,
+                              },
+                            ]
+                          : []),
                       ]}
                       scroll={{ x: 680 }}
                     />

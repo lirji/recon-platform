@@ -1,0 +1,27 @@
+package com.lrj.recon.rules;
+
+import com.lrj.recon.rules.drools.DiscrepancyDecision;
+import com.lrj.recon.core.domain.model.DiscrepancyType;
+
+// 默认规则集: 与 recon-core 的 ExactEvaluator / ToleranceEvaluator 语义等价 (parity 测试锁定)。
+// ops 可在追加的 DRL 里写更多规则 (suppress / overrideType) 而无需改 Java —— 这是 B2 的可配置化能力。
+
+// ① 候选类型被 DiscrepancyRule 关闭 → 抹平 (等价 Exact/Tolerance 的 !rule.isEnabled(type) 早返回)。
+rule "suppress disabled discrepancy type"
+    salience 100
+    when
+        $d : DiscrepancyDecision(candidateType != null, typeEnabled == false, suppressed == false)
+    then
+        $d.suppress();
+end
+
+// ② AMOUNT_MISMATCH 落金额容差内 → 视为匹配 (等价 ToleranceEvaluator 的 withinTolerance 抹平)。
+//    withinAmountTolerance 由 Java 侧按双阈值(绝对/比例, 溢出安全整数运算)预计算, 阈值=0 时恒 false → 等价 Exact。
+rule "suppress amount mismatch within tolerance"
+    salience 90
+    when
+        $d : DiscrepancyDecision(candidateType == DiscrepancyType.AMOUNT_MISMATCH,
+                                 withinAmountTolerance == true, suppressed == false)
+    then
+        $d.suppress();
+end

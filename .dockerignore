@@ -4,6 +4,10 @@
 .vscode
 docs
 recon-console
+# 部署脚本 / compose / 文档不进后端镜像构建上下文, 避免改脚本就使 Maven 层缓存失效
+deploy.sh
+compose*.yml
+*.md
 **/target
 **/.DS_Store
 **/*.log

@@ -33,6 +33,12 @@ public interface ReconConsoleQueryRepository {
      */
     List<RefineViolation> findRefineViolations(String runId, int limit);
 
+    /**
+     * B7 · 1:N 明细下钻:列出某组(run+segment+group_key,如发放单)底层的 staged {@code recon_record} 明细行
+     * (左右两侧),供从「组级总额」下钻到「逐条记录」。有界({@code limit} 传 N+1 由上层判截断)。
+     */
+    List<GroupRecordDetail> findGroupRecords(String runId, String segmentId, String groupKey, int limit);
+
     record RunFilter(String scenarioCode, String accountingPeriod, String status, int page, int size) {
     }
 
@@ -110,6 +116,19 @@ public interface ReconConsoleQueryRepository {
 
     /** KI-6 单条函数性 refine 违规:同一 (segment, match_key) 映射到多个 group_key(distinctGroupCount)。 */
     record RefineViolation(String segmentId, String matchKey, long distinctGroupCount) {
+    }
+
+    /** B7 · 组内一条 staged 记录明细(金额十进制字符串,防 BIGINT 精度损失)。 */
+    record GroupRecordDetail(String recordId, String side, String sourceRole, String matchKey, String currency,
+                             String signedAmountMinor, String entryType, String bizStatus, String rawRef) {
+    }
+
+    /** B7 · 明细下钻报告。{@code truncated}=是否被有界截断;{@code recordCount}=本次列出条数。 */
+    record GroupRecordReport(String runId, String segmentId, String groupKey, int recordCount, boolean truncated,
+                             List<GroupRecordDetail> records) {
+        public GroupRecordReport {
+            records = List.copyOf(records);
+        }
     }
 
     /**

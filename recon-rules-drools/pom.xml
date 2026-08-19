@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.lrj.recon</groupId>
+        <artifactId>recon-platform</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>recon-rules-drools</artifactId>
+    <name>recon-rules-drools</name>
+    <description>阶段二 B2: Drools 判差策略层 (外圈)。DroolsEvaluator 的 KIE 实现 —— 先跑 recon-core 的
+        DiscrepancyClassifier 得候选差异 (保留 fingerprint/bridge/守恒等安全关键构造), 再以 DRL 规则对候选做
+        suppress/降级/改判。默认规则集与 ExactEvaluator/ToleranceEvaluator 等价 (parity 测试锁定)。
+        只依赖 recon-core; 不引入 Spring/Batch/JDBC (由组合根 recon-batch 装配)。</description>
+
+    <properties>
+        <drools.version>8.44.2.Final</drools.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- 统一 Drools/KIE 家族版本, 避免与 spring-boot BOM 交叉污染。 -->
+            <dependency>
+                <groupId>org.drools</groupId>
+                <artifactId>drools-bom</artifactId>
+                <version>${drools.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.lrj.recon</groupId>
+            <artifactId>recon-core</artifactId>
+        </dependency>
+
+        <!-- KIE API + 运行时 DRL 编译。drools-compiler 传递 drools-core/kie-api/ecj/mvel。 -->
+        <dependency>
+            <groupId>org.kie</groupId>
+            <artifactId>kie-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.drools</groupId>
+            <artifactId>drools-compiler</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.drools</groupId>
+            <artifactId>drools-mvel</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

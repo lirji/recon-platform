@@ -26,6 +26,7 @@ public class ReconConsoleQueryService {
     private static final int MAX_PAGE = 1_000_000;
     /** KI-6 诊断有界上限:列出的违规条数上限,超出置 truncated(不静默截断)。 */
     private static final int MAX_REFINE_VIOLATIONS = 100;
+    private static final int MAX_GROUP_RECORDS = 500;
     private static final Set<String> RUN_STATUSES = enumNames(ReconRunStatus.values());
     private static final Set<String> DISCREPANCY_TYPES = enumNames(DiscrepancyType.values());
     private static final Set<String> DISPOSITION_STATUSES = dispositionStatuses();
@@ -150,6 +151,19 @@ public class ReconConsoleQueryService {
         List<ReconConsoleQueryRepository.RefineViolation> violations =
                 truncated ? List.copyOf(found.subList(0, MAX_REFINE_VIOLATIONS)) : found;
         return new ReconConsoleQueryRepository.RefineViolationReport(id, violations.size(), truncated, violations);
+    }
+
+    /** B7 · 1:N 明细下钻:组(run+segment+group_key)底层 staged 记录明细,有界 {@link #MAX_GROUP_RECORDS}。 */
+    public ReconConsoleQueryRepository.GroupRecordReport groupRecords(String runId, String segmentId, String groupKey) {
+        String rid = requiredText(runId, "runId", 64);
+        String seg = requiredText(segmentId, "segmentId", 32);
+        String gk = requiredText(groupKey, "groupKey", 128);
+        List<ReconConsoleQueryRepository.GroupRecordDetail> found =
+                repository.findGroupRecords(rid, seg, gk, MAX_GROUP_RECORDS + 1);
+        boolean truncated = found.size() > MAX_GROUP_RECORDS;
+        List<ReconConsoleQueryRepository.GroupRecordDetail> records =
+                truncated ? List.copyOf(found.subList(0, MAX_GROUP_RECORDS)) : found;
+        return new ReconConsoleQueryRepository.GroupRecordReport(rid, seg, gk, records.size(), truncated, records);
     }
 
     private static int normalizePage(Integer page) {

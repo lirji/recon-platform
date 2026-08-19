@@ -239,6 +239,24 @@ public class JdbcReconConsoleQueryStore implements ReconConsoleQueryRepository {
                 runId, limit);
     }
 
+    @Override
+    public List<GroupRecordDetail> findGroupRecords(String runId, String segmentId, String groupKey, int limit) {
+        // B7: 组内 staged 明细(左右两侧),按 side/match_key/record_id 稳定排序;金额转十进制字符串防精度损失。
+        return jdbc.query("""
+                SELECT record_id, side, source_role, match_key, currency, signed_amount_minor,
+                       entry_type, biz_status, raw_ref
+                  FROM recon_record
+                 WHERE run_id = ? AND segment_id = ? AND group_key = ?
+                 ORDER BY side, (match_key IS NULL), match_key, record_id
+                 LIMIT ?
+                """, (rs, rowNum) -> new GroupRecordDetail(
+                rs.getString("record_id"), rs.getString("side"), rs.getString("source_role"),
+                rs.getString("match_key"), rs.getString("currency"),
+                Long.toString(rs.getLong("signed_amount_minor")), rs.getString("entry_type"),
+                rs.getString("biz_status"), rs.getString("raw_ref")),
+                runId, segmentId, groupKey, limit);
+    }
+
     private long count(String sql, List<Object> params) {
         Long value = jdbc.queryForObject(sql, Long.class, params.toArray());
         return value == null ? 0 : value;

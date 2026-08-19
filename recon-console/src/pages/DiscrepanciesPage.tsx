@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { EyeOutlined, FilterOutlined, ReloadOutlined } from '@ant-design/icons'
 import { Button, Card, Col, Form, Grid, Input, Pagination, Row, Select, Space, Table, Typography } from 'antd'
@@ -33,10 +34,24 @@ function deltaColor(value: string): string {
   }
 }
 
+// 从 URL query 播种初始过滤(支撑三方 roll-up 桥断下钻 /discrepancies?runId&segmentId&type=...);无 query 时行为不变。
+const SEEDABLE_KEYS = ['runId', 'segmentId', 'type', 'status', 'currency', 'q'] as const
+
+function seedFromParams(params: URLSearchParams): Partial<DiscrepancyFilters> {
+  const seeded: Partial<DiscrepancyFilters> = {}
+  for (const key of SEEDABLE_KEYS) {
+    const value = params.get(key)
+    if (value) seeded[key] = value
+  }
+  return seeded
+}
+
 export function DiscrepanciesPage() {
   const screens = Grid.useBreakpoint()
+  const [searchParams] = useSearchParams()
+  const [initialSeed] = useState(() => seedFromParams(searchParams))
   const [form] = Form.useForm<DiscrepancyFilters>()
-  const [filters, setFilters] = useState<DiscrepancyFilters>({ page: 0, size: 20 })
+  const [filters, setFilters] = useState<DiscrepancyFilters>(() => ({ ...initialSeed, page: 0, size: 20 }))
   const [discrepancyId, setDiscrepancyId] = useState<string | null>(null)
   const discrepancies = useQuery({
     queryKey: ['discrepancies', filters],
@@ -89,7 +104,7 @@ export function DiscrepanciesPage() {
       />
 
       <Card className="filter-card">
-        <Form<DiscrepancyFilters> form={form} layout="vertical" onFinish={applyFilters}>
+        <Form<DiscrepancyFilters> form={form} layout="vertical" initialValues={initialSeed} onFinish={applyFilters}>
           <Row gutter={12}>
             <Col xs={24} md={12} xl={6}>
               <Form.Item name="q" label="关键字">

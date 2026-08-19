@@ -102,6 +102,13 @@ class DiscrepancyHandlerChainTest {
         @Override public boolean insertIfAbsent(ReversalSuggestion s) {
             return byKey.putIfAbsent(s.idempotencyKey(), s) == null;
         }
+        @Override public int updateStatus(String id, com.lrj.recon.core.domain.model.ReversalStatus status,
+                String operator, String note) {
+            return 0; // 处理链不改冲正状态(审批走 B5 工作流)
+        }
+        @Override public java.util.Optional<ReversalSuggestion> find(String id) {
+            return byKey.values().stream().filter(s -> s.id().equals(id)).findFirst();
+        }
     }
 
     private static final class FakeActions implements DiscrepancyActionRepository {

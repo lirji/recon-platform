@@ -32,6 +32,10 @@ public final class MatchGroup {
     private final Instant leftPostingTime;
     private final Instant rightPostingTime;
 
+    // B6 汇率:该侧折算基准币金额之和(某侧任一记录缺 base 则为 null → 该侧基准额不可用,退回 CURRENCY_MISMATCH)。
+    private final Long leftBaseMinor;
+    private final Long rightBaseMinor;
+
     private MatchGroup(Builder b) {
         this.groupKey = b.groupKey;
         this.matchKey = b.matchKey;
@@ -49,6 +53,8 @@ public final class MatchGroup {
         this.rightBizStatus = b.rightBizStatus;
         this.leftPostingTime = b.leftPostingTime;
         this.rightPostingTime = b.rightPostingTime;
+        this.leftBaseMinor = b.leftBaseMinor;
+        this.rightBaseMinor = b.rightBaseMinor;
     }
 
     public static Builder builder() {
@@ -71,6 +77,13 @@ public final class MatchGroup {
     public String rightBizStatus() { return rightBizStatus; }
     public Instant leftPostingTime() { return leftPostingTime; }
     public Instant rightPostingTime() { return rightPostingTime; }
+    public Long leftBaseMinor() { return leftBaseMinor; }
+    public Long rightBaseMinor() { return rightBaseMinor; }
+
+    /** B6: 两侧折算基准币金额均可用(可做跨币比较判 FX_RATE_DIFF);否则退回 CURRENCY_MISMATCH。 */
+    public boolean hasBaseAmounts() {
+        return leftBaseMinor != null && rightBaseMinor != null;
+    }
 
     public boolean hasLeft() {
         return presence == Presence.BOTH || presence == Presence.LEFT_ONLY;
@@ -115,6 +128,8 @@ public final class MatchGroup {
         private String rightBizStatus;
         private Instant leftPostingTime;
         private Instant rightPostingTime;
+        private Long leftBaseMinor;
+        private Long rightBaseMinor;
 
         public Builder groupKey(GroupKey v) { this.groupKey = v; return this; }
         public Builder matchKey(MatchKey v) { this.matchKey = v; return this; }
@@ -132,6 +147,8 @@ public final class MatchGroup {
         public Builder rightBizStatus(String v) { this.rightBizStatus = v; return this; }
         public Builder leftPostingTime(Instant v) { this.leftPostingTime = v; return this; }
         public Builder rightPostingTime(Instant v) { this.rightPostingTime = v; return this; }
+        public Builder leftBaseMinor(Long v) { this.leftBaseMinor = v; return this; }
+        public Builder rightBaseMinor(Long v) { this.rightBaseMinor = v; return this; }
 
         public MatchGroup build() {
             return new MatchGroup(this);

@@ -69,7 +69,14 @@ public class CasdoorSecurityConfig {
                         // 人工核销 / 关闭 → recon.dispose (operator/admin)。
                         .requestMatchers(HttpMethod.POST, "/recon/discrepancies/*/resolve").hasAuthority("recon.dispose")
                         .requestMatchers(HttpMethod.POST, "/recon/discrepancies/*/close").hasAuthority("recon.dispose")
-                        // 其余 /recon/** (dashboard/runs/discrepancies 读 + 报表) → recon.read (viewer+)。
+                        // B4 场景定义写入(配置驱动平台)→ recon.launch (admin);读走下方 recon.read 兜底。
+                        .requestMatchers(HttpMethod.PUT, "/recon/scenarios/**").hasAuthority("recon.launch")
+                        .requestMatchers(HttpMethod.POST, "/recon/scenarios/**").hasAuthority("recon.launch")
+                        // B5 冲正审批(提交/审批)→ recon.dispose;读待办走下方 recon.read 兜底。
+                        .requestMatchers(HttpMethod.POST, "/recon/reversal-approvals/**").hasAuthority("recon.dispose")
+                        // B3 冲正执行(真实资金动作)→ recon.launch(最高权限,与审批独立控制点)。
+                        .requestMatchers(HttpMethod.POST, "/recon/reversal-executions/**").hasAuthority("recon.launch")
+                        // 其余 /recon/** (dashboard/runs/discrepancies 读 + 报表 + 场景读) → recon.read (viewer+)。
                         .requestMatchers("/recon/**").hasAuthority("recon.read")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(o -> o.jwt(j -> j.jwtAuthenticationConverter(authorityMapper.jwtAuthenticationConverter())))

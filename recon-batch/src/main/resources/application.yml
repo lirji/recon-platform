@@ -54,9 +54,16 @@ recon:
     csv:
       charset: ${RECON_M4_CSV_CHARSET:UTF-8}
       delimiter: ${RECON_M4_CSV_DELIMITER:,}
+  # B2 Drools 判差策略层. 默认关 (不付启动开销). 开启后 evaluator-type=DROOLS 的段经 recon-rules-drools 判差:
+  # 先跑 core 分类器得候选, 再由 DRL 规则 suppress/改判 (默认规则集 ≡ EXACT/TOLERANCE, parity 锁定). extra-classpath
+  # 可叠加一份 ops 自定义 DRL (classpath 资源). DRL 编译失败 → 启动 fail-fast; 未启用却配 DROOLS → 装配 fail-fast.
+  rules:
+    drools:
+      enabled: ${RECON_RULES_DROOLS_ENABLED:false}        # true 时激活 Drools 判差器 (@ConditionalOnProperty)
+      extra-classpath: ${RECON_RULES_DROOLS_EXTRA:}        # 可选: 追加自定义 DRL 的 classpath 路径 (如 rules/ops.drl)
   # M4 营销三方场景两段判差规则 (修复 D). 默认 EXACT (阈值忽略, 等价精确比较); 改 TOLERANCE 并配阈值即让该段
-  # 运行态经 EvaluatorFactory 命中 ToleranceEvaluator —— |expected-actual| 落在绝对(minor)或比例(bps=万分之一)
-  # 阈值内 (取更宽者) 的 AMOUNT_MISMATCH 视为匹配不产差. 阈值 <=0 表示该阈值关闭. DROOLS 运行期 fail-fast.
+  # 运行态经 EvaluatorResolver 命中 ToleranceEvaluator —— |expected-actual| 落在绝对(minor)或比例(bps=万分之一)
+  # 阈值内 (取更宽者) 的 AMOUNT_MISMATCH 视为匹配不产差. 阈值 <=0 表示该阈值关闭. DROOLS 需先 enabled 否则 fail-fast.
   scenario:
     mkt:
       seg1:

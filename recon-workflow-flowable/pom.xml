@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.lrj.recon</groupId>
+        <artifactId>recon-platform</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>recon-workflow-flowable</artifactId>
+    <name>recon-workflow-flowable</name>
+    <description>阶段二 B5: Flowable 冲正审批工作流(外圈)。BPMN 流程 + 审批封装;org.flowable 封装在本模块内,
+        组合根 recon-batch 经其公开 API 装配。只依赖 recon-core;Spring 装配与引擎条件加载归组合根。</description>
+
+    <properties>
+        <flowable.version>7.1.0</flowable.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.lrj.recon</groupId>
+            <artifactId>recon-core</artifactId>
+        </dependency>
+
+        <!-- Flowable BPMN 引擎(Spring Boot 3 / Jakarta / Java 21 兼容)。 -->
+        <dependency>
+            <groupId>org.flowable</groupId>
+            <artifactId>flowable-engine</artifactId>
+            <version>${flowable.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Flowable 引擎运行需 H2 + slf4j 实现(测试内存库)。 -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

@@ -38,6 +38,7 @@ final class GroupAggregator {
         boolean duplicate = false;
         if (hasLeft) {
             b.sumSignedLeftMinor(sumSigned(lefts));
+            b.leftBaseMinor(sumBase(lefts));
             b.leftCurrency(singleCurrency(lefts));
             ReconRecord head = lefts.get(0);
             b.leftSampleRawRef(head.rawRef());
@@ -47,6 +48,7 @@ final class GroupAggregator {
         }
         if (hasRight) {
             b.sumSignedRightMinor(sumSigned(rights));
+            b.rightBaseMinor(sumBase(rights));
             b.rightCurrency(singleCurrency(rights));
             ReconRecord head = rights.get(0);
             b.rightSampleRawRef(head.rawRef());
@@ -62,6 +64,19 @@ final class GroupAggregator {
         long acc = 0L;
         for (ReconRecord r : records) {
             acc = MoneyMath.addExact(acc, r.signedAmountMinor());
+        }
+        return acc;
+    }
+
+    /** B6: 该侧折算基准币金额之和;任一记录缺 base(留位字段未填)→ 返回 null(该侧基准额不可用)。 */
+    private static Long sumBase(List<ReconRecord> records) {
+        long acc = 0L;
+        for (ReconRecord r : records) {
+            Long base = r.baseAmountMinor();
+            if (base == null) {
+                return null;
+            }
+            acc = MoneyMath.addExact(acc, base);
         }
         return acc;
     }

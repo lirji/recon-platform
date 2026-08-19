@@ -17,7 +17,12 @@ server {
     }
 
     location /recon {
-        proxy_pass ${RECON_API_URL};
+        # Docker 内嵌 DNS (127.0.0.11): 让 nginx 运行期按 TTL 重解析 backend 主机名。
+        # 静态 proxy_pass 只在 worker 启动时解析一次并缓存 IP —— 后端容器重建换 IP 后会一直 502。
+        # 用「变量 upstream」才会触发逐请求重解析(配合 $request_uri 保留完整路径与查询串)。
+        resolver 127.0.0.11 valid=10s ipv6=off;
+        set $recon_upstream ${RECON_API_URL};
+        proxy_pass $recon_upstream$request_uri;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

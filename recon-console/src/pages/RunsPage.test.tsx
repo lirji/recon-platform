@@ -10,6 +10,8 @@ vi.mock('../api/recon', () => ({
   getRun: vi.fn(),
   rerunRun: vi.fn(),
   launchRun: vi.fn(),
+  // 防御性:RunDetailDrawer 现静态 import getThreeWayReport(三方 Tab 懒加载,本用例不触发)。
+  getThreeWayReport: vi.fn(),
 }))
 
 const mockedListRuns = vi.mocked(listRuns)

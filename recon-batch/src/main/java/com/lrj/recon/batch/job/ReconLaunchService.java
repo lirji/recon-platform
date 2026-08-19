@@ -1,5 +1,7 @@
 package com.lrj.recon.batch.job;
 
+import com.lrj.recon.batch.config.GenericReconJobConfig;
+import com.lrj.recon.batch.service.ConfigScenarioService;
 import com.lrj.recon.batch.service.NotFoundException;
 import com.lrj.recon.core.application.port.out.ReconRunRepository;
 import com.lrj.recon.core.application.port.out.ReconRunSeqRepository;
@@ -40,24 +42,30 @@ public class ReconLaunchService {
     private final Map<String, Job> jobs;               // Spring 注入全部 Job bean (bean 名为键)
     private final ReconRunSeqRepository seqRepo;
     private final ReconRunRepository runs;
+    private final ConfigScenarioService scenarios;     // B4: 配置驱动场景(不存在/停用/段数不符则 fail-fast)
     private final int defaultBucketCount;
     private final String defaultScenarioCode;
     private final String defaultJobName;
+    private final String genericJobName;
 
     public ReconLaunchService(JobLauncher jobLauncher,
                               Map<String, Job> jobs,
                               ReconRunSeqRepository seqRepo,
                               ReconRunRepository runs,
+                              ConfigScenarioService scenarios,
                               @Value("${recon.launch.bucket-count:64}") int defaultBucketCount,
                               @Value("${recon.launch.scenario-code:MARKETING_3WAY}") String defaultScenarioCode,
-                              @Value("${recon.launch.default-job:marketingThreeWayJob}") String defaultJobName) {
+                              @Value("${recon.launch.default-job:marketingThreeWayJob}") String defaultJobName,
+                              @Value("${recon.launch.generic-job:genericReconJob}") String genericJobName) {
         this.jobLauncher = jobLauncher;
         this.jobs = jobs;
         this.seqRepo = seqRepo;
         this.runs = runs;
+        this.scenarios = scenarios;
         this.defaultBucketCount = defaultBucketCount;
         this.defaultScenarioCode = requireText("configured scenarioCode", defaultScenarioCode);
         this.defaultJobName = requireText("configured default jobName", defaultJobName);
+        this.genericJobName = requireText("configured generic jobName", genericJobName);
     }
 
     /** REST/scheduler 发起入口: 分配序号 + launch。 */
@@ -68,10 +76,6 @@ public class ReconLaunchService {
         String scenario = requireText("scenarioCode", cmd.scenarioCode());
         if (scenario.length() > MAX_SCENARIO_CODE_LENGTH) {
             throw new IllegalArgumentException("scenarioCode must not exceed " + MAX_SCENARIO_CODE_LENGTH + " characters");
-        }
-        if (!defaultScenarioCode.equals(scenario)) {
-            throw new IllegalArgumentException("unsupported scenarioCode '" + scenario + "'; configured scenario is '"
-                    + defaultScenarioCode + "'");
         }
         String period = requireText("accountingPeriod", cmd.accountingPeriod());
         String mappedJobName = defaultJobNameFor(scenario);
@@ -135,13 +139,29 @@ public class ReconLaunchService {
         return job;
     }
 
-    /** 场景→Job 的 MVP 约定。首发和重跑必须由同一确定性映射选 Job；阶段二可外置为配置映射。 */
+    /**
+     * 场景→Job 路由(首发与重跑同一确定性映射,保重跑可复现)。B4:
+     * <ul>
+     *   <li>内置 {@code defaultScenarioCode}(MARKETING_3WAY)→ 硬编码 {@code marketingThreeWayJob}(既有行为不变);</li>
+     *   <li>其它 code:须在配置存储中<b>存在且启用</b>,且段数 == {@link GenericReconJobConfig#EXPECTED_SEGMENTS}
+     *       → 通用引擎 {@code genericReconJob};否则 fail-fast(不静默跑错 Job)。</li>
+     * </ul>
+     */
     private String defaultJobNameFor(String scenarioCode) {
-        if (!defaultScenarioCode.equals(scenarioCode)) {
-            throw new IllegalArgumentException("unsupported scenarioCode '" + scenarioCode
-                    + "'; configured scenario is '" + defaultScenarioCode + "'");
+        if (defaultScenarioCode.equals(scenarioCode)) {
+            return defaultJobName;
         }
-        return defaultJobName;
+        if (!scenarios.isRunnable(scenarioCode)) {
+            throw new IllegalArgumentException("unsupported scenarioCode '" + scenarioCode
+                    + "'; not the built-in '" + defaultScenarioCode + "' and not an enabled config-defined scenario");
+        }
+        int segments = scenarios.assemble(scenarioCode).segments().size();
+        if (segments != GenericReconJobConfig.EXPECTED_SEGMENTS) {
+            throw new IllegalArgumentException("config scenario '" + scenarioCode + "' has " + segments
+                    + " segments; genericReconJob handles " + GenericReconJobConfig.EXPECTED_SEGMENTS
+                    + "-segment scenarios only");
+        }
+        return genericJobName;
     }
 
     /** runId 派生: {@code scenario:period:seq} (recon_run.run_id VARCHAR(64), MVP 场景码短, 不超长)。 */

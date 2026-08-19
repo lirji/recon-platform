@@ -1,7 +1,8 @@
 # B1 三方合并只读视图 · 实施进度
 
-> 路线图 `docs/PHASE2_ROADMAP.md` Track B · B1(P1 速赢 · 工作量 S–M)。**后端只读 API 已完成 2026-08-19;
-> 前端页待走 frontend-plan(按全局规范,计划批准前不写码)。**
+> 路线图 `docs/PHASE2_ROADMAP.md` Track B · B1(P1 速赢 · 工作量 S–M)。**后端只读 API + 前端页均已完成 2026-08-19。**
+> 前端经 frontend-plan 全流程(五路只读子代理 → 决策记录 → 实施计划 → 独立评审 → 用户批准 → 实现),
+> 计划与决策记录见 `docs/plans/b1-three-way-frontend-0819-1109/`。
 
 ## 背景与口径来源
 
@@ -32,10 +33,24 @@
 - `ThreeWayRollupTest`(@SpringBootTest+MockMvc,H2 seed)**3/3**。
 - `ReconConsoleControllerTest` 回归 **4/4**(既有只读接口无影响)。
 
-## 待做 — 前端页(需 frontend-plan)
+## 已完成 ✅ — 前端页(2026-08-19)
 
-三方 roll-up 摘要页/区块(可挂在 Run 详情抽屉或独立视图):按全局规范先走 `frontend-plan`(勘察→并行只读子代理→
-决策记录→实施计划→独立评审→批准后实现)。数据源即本 API,前端金额按字符串接收,禁转 number 做业务计算。
+`RunDetailDrawer` 内新增 Tabs:「守恒报表」(默认)/「三方合并」(懒加载,仅 `MARKETING_3WAY` 场景显示)。
+三方 Tab = 三态一致性 banner(全平/不一致/无报表)+ 每币种 Card(SEG1/SEG2 两段 `Row/Col` 并列、
+一致性 Tag、桥断额)。金额全程 `formatMinor`(BigInt,禁转 number)。**桥断下钻**:段桥断非零 → 链接跳
+`/discrepancies?runId&segmentId&type=BRIDGE_BROKEN`(为此给 `DiscrepanciesPage` 接 `useSearchParams` 播种过滤)。
+
+**改动文件**:`api/{types,recon}.ts`、`components/runs/{ThreeWayRollupPanel,CurrencyRollupCard}.tsx`(新)、
+`components/runs/RunDetailDrawer.tsx`(Tabs + rerun 追加 `['three-way']` 失效)、`pages/DiscrepanciesPage.tsx`(URL 播种)、
+`utils/format.ts`(`isNonZeroMinor`)、`test/render.tsx`(`initialEntries`)、`test/setup.ts`(全局 cleanup)。
+**测试**:`ThreeWayRollupPanel.test.tsx`(9)+ `DiscrepanciesPage.test.tsx`(2)+ e2e 三方冒烟(desktop+mobile)。
+
+**验证证据**:`pnpm test` 16/16、`pnpm build`(tsc+vite)通过、`pnpm e2e` 4/4(双 project)。
+
+### 合成口径落地校验
+- **不跨段/不混币种求和**:banner KPI 只用「不一致币种数」计数;桥断额按币种/按段分别列示,无跨币种相加。
+- **缺段**:seg=null → 「链路不完整(缺 SEGx)」,不空指针。
+- **大额精度**:24 位 / >2^53 串测试断言无科学计数、无 number 截断。
 
 ## 诚实边界
 

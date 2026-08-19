@@ -51,6 +51,14 @@ public class ReconConsoleController {
         return queries.refineViolations(runId);
     }
 
+    /** B7 · 1:N 明细下钻:某组(段 + 发放单/group_key)底层 staged 记录明细(只读,recon.read)。 */
+    @GetMapping("/runs/{id}/records")
+    public ReconConsoleQueryRepository.GroupRecordReport groupRecords(@PathVariable("id") String runId,
+                                                                     @RequestParam("segmentId") String segmentId,
+                                                                     @RequestParam("groupKey") String groupKey) {
+        return queries.groupRecords(runId, segmentId, groupKey);
+    }
+
     @GetMapping("/discrepancies")
     public ReconConsoleQueryRepository.PageResult<ReconConsoleQueryRepository.DiscrepancySummary> discrepancies(
             @RequestParam(required = false) String runId,

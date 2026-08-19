@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { App, Button, Descriptions, Drawer, Empty, Grid, Popconfirm, Space, Table, Typography } from 'antd'
+import { App, Button, Descriptions, Drawer, Empty, Grid, Popconfirm, Space, Table, Tabs, Typography } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { getRun, rerunRun } from '../../api/recon'
 import type { ReportEntry } from '../../api/types'
@@ -7,6 +8,9 @@ import { useAuth } from '../../auth/AuthContext'
 import { ErrorState, PageSkeleton } from '../common/AsyncState'
 import { RunStatusTag } from '../common/StatusTag'
 import { errorMessage, formatDateTime, formatMinor } from '../../utils/format'
+import { ThreeWayRollupPanel } from './ThreeWayRollupPanel'
+
+const THREE_WAY_SCENARIO = 'MARKETING_3WAY'
 
 interface Props {
   runId: string | null
@@ -18,6 +22,7 @@ export function RunDetailDrawer({ runId, onClose }: Props) {
   const queryClient = useQueryClient()
   const { message } = App.useApp()
   const canLaunch = useAuth().can('recon.launch')
+  const [activeKey, setActiveKey] = useState('conservation')
   const detail = useQuery({
     queryKey: ['run-detail', runId],
     queryFn: () => getRun(runId!),
@@ -32,6 +37,7 @@ export function RunDetailDrawer({ runId, onClose }: Props) {
         queryClient.invalidateQueries({ queryKey: ['runs'] }),
         queryClient.invalidateQueries({ queryKey: ['run-detail', runId] }),
         queryClient.invalidateQueries({ queryKey: ['discrepancies'] }),
+        queryClient.invalidateQueries({ queryKey: ['three-way', runId] }),
       ])
     },
     onError: (error) => message.error(errorMessage(error)),
@@ -106,21 +112,43 @@ export function RunDetailDrawer({ runId, onClose }: Props) {
             <Descriptions.Item label="结束时间">{formatDateTime(detail.data.run.finishedAt)}</Descriptions.Item>
           </Descriptions>
 
-          <section>
-            <h3 className="section-title">守恒报表</h3>
-            {detail.data.reports.length === 0 ? (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该 Run 尚未生成报表" />
-            ) : (
-              <Table
-                rowKey={(row) => `${row.segmentId}:${row.currency}`}
-                columns={columns}
-                dataSource={detail.data.reports}
-                pagination={false}
-                size="small"
-                scroll={{ x: 1000 }}
+          {(() => {
+            const conservationReport =
+              detail.data.reports.length === 0 ? (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该 Run 尚未生成报表" />
+              ) : (
+                <Table
+                  rowKey={(row) => `${row.segmentId}:${row.currency}`}
+                  columns={columns}
+                  dataSource={detail.data.reports}
+                  pagination={false}
+                  size="small"
+                  scroll={{ x: 1000 }}
+                />
+              )
+            if (detail.data.run.scenarioCode !== THREE_WAY_SCENARIO) {
+              return (
+                <section>
+                  <h3 className="section-title">守恒报表</h3>
+                  {conservationReport}
+                </section>
+              )
+            }
+            return (
+              <Tabs
+                activeKey={activeKey}
+                onChange={setActiveKey}
+                items={[
+                  { key: 'conservation', label: '守恒报表', children: conservationReport },
+                  {
+                    key: 'three-way',
+                    label: '三方合并',
+                    children: <ThreeWayRollupPanel runId={detail.data.run.runId} enabled={activeKey === 'three-way'} />,
+                  },
+                ]}
               />
-            )}
-          </section>
+            )
+          })()}
         </Space>
       )}
     </Drawer>

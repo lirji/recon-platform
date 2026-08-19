@@ -51,6 +51,15 @@ public final class DiscrepancyClassifier {
 
         // ---- BOTH 分支 ----
         if (!group.isCurrencyConsistent()) {
+            // B6: 跨币时若两侧折算基准币金额均可用, 用基准额比较(容差内视为汇率对上=匹配, 超容差=FX_RATE_DIFF);
+            // 无基准额则退回 CURRENCY_MISMATCH(与原行为一致)。FX_RATE_DIFF 是跨币分支的细化, 不进任何数值买卖比较。
+            if (group.hasBaseAmounts()) {
+                long baseDelta = MoneyMath.subtractExact(group.leftBaseMinor(), group.rightBaseMinor());
+                if (Math.absExact(baseDelta) <= ctx.fxToleranceMinor()) {
+                    return null; // 折算后落容差内: 跨币经汇率对上, 干净匹配
+                }
+                return fxRateDiff(group, ctx, baseDelta);
+            }
             return currencyMismatch(group, ctx);
         }
         if (group.duplicate()) {
@@ -155,6 +164,22 @@ public final class DiscrepancyClassifier {
                 .expectedAmountMinor(0L)
                 .actualAmountMinor(right)
                 .deltaAmountMinor(MoneyMath.subtractExact(0L, right))
+                .rightRawRef(g.rightSampleRawRef())
+                .build();
+    }
+
+    /**
+     * B6 FX_RATE_DIFF: 跨币两侧折算基准额超容差。金额为<b>基准币最小单位</b>(expected=左基准/actual=右基准/
+     * delta=左-右);currency=null(跨币, 基准币列未命名)。左右原币额仍分落各自币种桶, 守恒不受影响(与
+     * CURRENCY_MISMATCH 同, FX_RATE_DIFF 只是诊断细化)。
+     */
+    private Discrepancy fxRateDiff(MatchGroup g, EvaluationContext ctx, long baseDelta) {
+        return base(g, ctx, DiscrepancyType.FX_RATE_DIFF, null)
+                .currency(null)
+                .expectedAmountMinor(g.leftBaseMinor())
+                .actualAmountMinor(g.rightBaseMinor())
+                .deltaAmountMinor(baseDelta)
+                .leftRawRef(g.leftSampleRawRef())
                 .rightRawRef(g.rightSampleRawRef())
                 .build();
     }
