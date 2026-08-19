@@ -1,6 +1,9 @@
 # recon-batch 组合根配置。
 # 默认 H2 内存 (MySQL 兼容模式), 免 Docker 本地可跑; 生产用 DB_URL/DB_USER/DB_PASSWORD 覆盖为 MySQL8/PG。
 # Flyway 在启动/测试期迁移 V1 (领域 schema) + V2 (Batch 元数据)。
+server:
+  # A1: Casdoor JWT (含 permissions/groups) ~9KB, 默认 8KB header 上限会让合法 Bearer 报 400 —— 放宽到 64KB.
+  max-http-request-header-size: 64KB
 spring:
   application:
     name: recon-batch
@@ -74,6 +77,17 @@ recon:
   # M5 告警中继: outbox 投递上限 (超过则视为死信不再补投).
   alert:
     max-attempt: ${RECON_ALERT_MAX_ATTEMPT:5}
+  # A1 认证鉴权 (对齐 risk-platform 范式): recon-batch 作 OAuth2 Resource Server, 校验 auth-platform(Casdoor) 签发的 JWT.
+  #  - 仅 secure profile (SPRING_PROFILES_ACTIVE=secure) 生效 CasdoorSecurityConfig: JWKS 验签 + issuer + audience allowlist
+  #    + owner(组织) + 非空 sub; 授权按 permissions 判 (recon.read/dispose/launch).
+  #  - 本地/dev/测试默认 profile 走 DevSecurityConfig permitAll (免 Casdoor, 本地可跑绿; operator 回退请求体).
+  #  - 生产需在 Casdoor 侧: role viewer/operator/admin 展开为 recon.read/dispose/launch 权限; 前端 redirect_uri=<console>/auth/callback.
+  auth:
+    issuer: ${RECON_AUTH_ISSUER:http://localhost:8000}
+    jwk-set-uri: ${RECON_AUTH_JWK_SET_URI:http://localhost:8000/.well-known/jwks}
+    organization: ${RECON_AUTH_ORG:recon-platform}
+    audiences: ${RECON_AUTH_AUDIENCES:}          # 逗号分隔的 client_id allowlist (如 <base>-org-recon-platform)
+    operator-claim: ${RECON_AUTH_OPERATOR_CLAIM:preferred_username}
   # M5 定时调度: 默认关 (测试友好, 不加载即无后台触发). 生产开启并配 cron/间隔.
   scheduler:
     enabled: ${RECON_SCHEDULER_ENABLED:false}

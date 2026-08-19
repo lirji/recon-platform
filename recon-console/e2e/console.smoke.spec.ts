@@ -45,6 +45,10 @@ async function mockApi(page: Page) {
     const request = route.request()
     const url = new URL(request.url())
     const json = (body: unknown) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+    if (url.pathname === '/recon/auth/me') {
+      // dev 身份(全权限):让守卫放行、写控件可见。
+      return json({ authenticated: true, sub: 'dev', name: 'qa-ops', permissions: ['recon.read', 'recon.dispose', 'recon.launch'] })
+    }
     if (url.pathname === '/recon/dashboard') {
       return json({
         metrics: { totalRuns: 1, runningRuns: 0, completedRuns: 1, failedRuns: 0, imbalancedRuns: 0, openDiscrepancies: 1, resolvedDiscrepancies: 0, closedDiscrepancies: 0 },
@@ -94,7 +98,7 @@ test('operator can inspect runs and resolve a discrepancy', async ({ page }) => 
   await expect(page.getByText('差异详情')).toBeVisible()
 
   await page.getByRole('button', { name: '核销' }).click()
-  await page.getByLabel('操作人').fill('qa-ops')
+  // operator 取自登录身份,不再手填。
   await page.getByPlaceholder('记录核验依据或关闭原因').fill('checked')
   await page.getByRole('button', { name: /确认核销/ }).click()
   await expect(page.getByText('差异已核销')).toBeVisible()

@@ -56,7 +56,7 @@ describe('DashboardPage', () => {
     expect(await screen.findByText('对账运营总览')).toBeInTheDocument()
     expect(screen.getByLabelText('累计运行')).toHaveTextContent('12')
     expect(screen.getByLabelText('待处理差异')).toHaveTextContent('6')
-    expect(screen.getByLabelText('差异类型构成图')).toBeInTheDocument()
+    expect(await screen.findByLabelText('差异类型构成图')).toBeInTheDocument()
     expect(screen.getByText('MARKETING_3WAY:2026-08-18:1')).toBeInTheDocument()
   })
 })

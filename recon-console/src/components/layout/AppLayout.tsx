@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { AlertOutlined, AuditOutlined, DashboardOutlined, MenuFoldOutlined, MenuOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
-import { Breadcrumb, Button, Drawer, Grid, Layout, Menu, Space, Tag } from 'antd'
+import { Breadcrumb, Button, Drawer, Grid, Layout, Menu, Space } from 'antd'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { colors } from '../../theme/colors'
+import { UserMenu } from './UserMenu'
 
 const navigation = [
   { key: '/dashboard', label: '工作台', icon: <DashboardOutlined /> },
@@ -66,7 +67,7 @@ export function AppLayout() {
             />
             <Breadcrumb items={[{ title: '运营管理' }, { title: current?.label || '工作台' }]} />
           </Space>
-          <Tag color="gold">受控环境 · 鉴权待接入</Tag>
+          <UserMenu />
         </Layout.Header>
         <Layout.Content>
           <main className="app-content">

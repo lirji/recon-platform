@@ -1,3 +1,10 @@
+export interface UserSession {
+  authenticated: boolean
+  sub: string
+  name: string
+  permissions: string[]
+}
+
 export interface PageResult<T> {
   content: T[]
   page: number
@@ -161,7 +168,8 @@ export interface LaunchResult {
 }
 
 export interface ClearRequest {
-  operator: string
+  // secure profile 由后端从 JWT 取(前端不必传);dev 回退用会话身份名。
+  operator?: string
   note?: string
   expectedVersion?: number
 }

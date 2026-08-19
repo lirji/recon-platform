@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Suspense, lazy, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AlertOutlined, AuditOutlined, CheckCircleOutlined, ClockCircleOutlined, PlusOutlined } from '@ant-design/icons'
 import { Button, Card, Col, Grid, Row, Space, Table, Typography } from 'antd'
@@ -9,15 +9,22 @@ import { ErrorState, PageSkeleton } from '../components/common/AsyncState'
 import { MetricCard } from '../components/common/MetricCard'
 import { PageHeader } from '../components/common/PageHeader'
 import { RunStatusTag } from '../components/common/StatusTag'
-import { DiscrepancyPieChart } from '../components/dashboard/DiscrepancyPieChart'
 import { LaunchRunModal } from '../components/runs/LaunchRunModal'
 import { RunDetailDrawer } from '../components/runs/RunDetailDrawer'
+import { useAuth } from '../auth/AuthContext'
 import { errorMessage, formatCount, formatDateTime } from '../utils/format'
+
+// 懒加载图表: echarts 是首屏(dashboard)上最重的可延后依赖, 拆成独立 chunk 并按需加载,
+// 让指标卡片/表格先渲染, 图表随后流式进入 (Suspense fallback 占位保持布局稳定)。
+const DiscrepancyPieChart = lazy(() =>
+  import('../components/dashboard/DiscrepancyPieChart').then((m) => ({ default: m.DiscrepancyPieChart })),
+)
 
 export function DashboardPage() {
   const navigate = useNavigate()
   const screens = Grid.useBreakpoint()
   const [launchOpen, setLaunchOpen] = useState(false)
+  const canLaunch = useAuth().can('recon.launch')
   const [runId, setRunId] = useState<string | null>(null)
   const dashboard = useQuery({
     queryKey: ['dashboard'],
@@ -49,7 +56,7 @@ export function DashboardPage() {
         eyebrow="RECONCILIATION OPERATIONS"
         title="对账运营总览"
         description="先看异常是否需要处理，再进入运行和差异明细。数据每 30 秒自动刷新。"
-        extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setLaunchOpen(true)}>发起对账</Button>}
+        extra={canLaunch ? <Button type="primary" icon={<PlusOutlined />} onClick={() => setLaunchOpen(true)}>发起对账</Button> : undefined}
       />
 
       <Row gutter={[16, 16]}>
@@ -73,7 +80,9 @@ export function DashboardPage() {
             {discrepancyTypes.length === 0 ? (
               <div className="chart-empty">尚无差异数据</div>
             ) : (
-              <DiscrepancyPieChart data={discrepancyTypes} />
+              <Suspense fallback={<div className="chart-empty">图表加载中…</div>}>
+                <DiscrepancyPieChart data={discrepancyTypes} />
+              </Suspense>
             )}
           </Card>
         </Col>

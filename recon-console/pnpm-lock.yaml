@@ -26,6 +26,9 @@ importers:
       echarts-for-react:
         specifier: ^3.0.2
         version: 3.0.6(echarts@5.6.0)(react@18.3.1)
+      oidc-client-ts:
+        specifier: ^3.5.0
+        version: 3.5.0
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -987,6 +990,10 @@ packages:
     engines: {node: '>=6'}
     hasBin: true
 
+  jwt-decode@4.0.0:
+    resolution: {integrity: sha512-+KJGIyHgkGuIq3IEBNftfhW/LfWhXUIY6OmyVWjliu5KH1y0fw7VQ8YndE2O4qZdMSd9SqbnC8GOcZEy0Om7sA==}
+    engines: {node: '>=18'}
+
   loose-envify@1.4.0:
     resolution: {integrity: sha512-lyuxPGr/Wfhrlem2CL/UcnUc1zcqKAImBDzukY7Y5F/yQiNdko6+fRLevlw1HgMySw7f611UIY408EtxRSoK3Q==}
     hasBin: true
@@ -1037,6 +1044,10 @@ packages:
 
   nwsapi@2.2.24:
     resolution: {integrity: sha512-7YRhZ3jS45LwmSCT4b2sVFHt/WuovaktDU07QrtOBY2PXskss5a9jfmR9jptyumwXST+rFjrmppMY1KT/yn35A==}
+
+  oidc-client-ts@3.5.0:
+    resolution: {integrity: sha512-l2q8l9CTCTOlbX+AnK4p3M+4CEpKpyQhle6blQkdFhm0IsBqsxm15bYaSa11G7pWdsYr6epdsRZxJpCyCRbT8A==}
+    engines: {node: '>=18'}
 
   parse5@7.3.0:
     resolution: {integrity: sha512-IInvU7fabl34qmi9gY8XOVxhYyMyuH2xUNpb2q8/Y+7552KlejkRvqvD19nMoUW/uQGGbqNpA6Tufu5FL5BZgw==}
@@ -2504,6 +2515,8 @@ snapshots:
 
   json5@2.2.3: {}
 
+  jwt-decode@4.0.0: {}
+
   loose-envify@1.4.0:
     dependencies:
       js-tokens: 4.0.0
@@ -2539,6 +2552,10 @@ snapshots:
   node-releases@2.0.53: {}
 
   nwsapi@2.2.24: {}
+
+  oidc-client-ts@3.5.0:
+    dependencies:
+      jwt-decode: 4.0.0
 
   parse5@7.3.0:
     dependencies:

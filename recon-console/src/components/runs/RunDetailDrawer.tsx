@@ -3,6 +3,7 @@ import { App, Button, Descriptions, Drawer, Empty, Grid, Popconfirm, Space, Tabl
 import { ReloadOutlined } from '@ant-design/icons'
 import { getRun, rerunRun } from '../../api/recon'
 import type { ReportEntry } from '../../api/types'
+import { useAuth } from '../../auth/AuthContext'
 import { ErrorState, PageSkeleton } from '../common/AsyncState'
 import { RunStatusTag } from '../common/StatusTag'
 import { errorMessage, formatDateTime, formatMinor } from '../../utils/format'
@@ -16,6 +17,7 @@ export function RunDetailDrawer({ runId, onClose }: Props) {
   const screens = Grid.useBreakpoint()
   const queryClient = useQueryClient()
   const { message } = App.useApp()
+  const canLaunch = useAuth().can('recon.launch')
   const detail = useQuery({
     queryKey: ['run-detail', runId],
     queryFn: () => getRun(runId!),
@@ -80,7 +82,7 @@ export function RunDetailDrawer({ runId, onClose }: Props) {
       onClose={onClose}
       width={screens.md ? 860 : '100%'}
       extra={
-        runId && (
+        runId && canLaunch && (
           <Popconfirm title="确认重跑当前 Run？" description="机器结果会重算，人工处置和审计会保留。" onConfirm={() => rerun.mutate()}>
             <Button icon={<ReloadOutlined />} loading={rerun.isPending}>重跑</Button>
           </Popconfirm>

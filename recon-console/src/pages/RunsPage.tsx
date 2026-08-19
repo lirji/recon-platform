@@ -9,6 +9,7 @@ import { PageHeader } from '../components/common/PageHeader'
 import { RunStatusTag } from '../components/common/StatusTag'
 import { LaunchRunModal } from '../components/runs/LaunchRunModal'
 import { RunDetailDrawer } from '../components/runs/RunDetailDrawer'
+import { useAuth } from '../auth/AuthContext'
 import { errorMessage, formatDateTime } from '../utils/format'
 
 const statusOptions = [
@@ -25,6 +26,7 @@ export function RunsPage() {
   const [form] = Form.useForm<RunFilters>()
   const [filters, setFilters] = useState<RunFilters>({ page: 0, size: 20 })
   const [launchOpen, setLaunchOpen] = useState(false)
+  const canLaunch = useAuth().can('recon.launch')
   const [runId, setRunId] = useState<string | null>(null)
   const runs = useQuery({
     queryKey: ['runs', filters],
@@ -67,7 +69,7 @@ export function RunsPage() {
         eyebrow="RUN OPERATIONS"
         title="运行管理"
         description="按账期和状态追踪每次对账运行，查看守恒报表，并在保留人工痕迹的前提下安全重跑。"
-        extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setLaunchOpen(true)}>发起对账</Button>}
+        extra={canLaunch ? <Button type="primary" icon={<PlusOutlined />} onClick={() => setLaunchOpen(true)}>发起对账</Button> : undefined}
       />
 
       <Card className="filter-card">

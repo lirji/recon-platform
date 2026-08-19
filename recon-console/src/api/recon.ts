@@ -12,7 +12,12 @@ import type {
   RunDetail,
   RunFilters,
   RunSummary,
+  UserSession,
 } from './types'
+
+export async function getMe(): Promise<UserSession> {
+  return (await api.get<UserSession>('/recon/auth/me')).data
+}
 
 export async function getDashboard(): Promise<DashboardView> {
   return (await api.get<DashboardView>('/recon/dashboard')).data

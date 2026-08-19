@@ -53,7 +53,7 @@ docker run --rm -p 127.0.0.1:8088:8088 \
   recon-platform-console:local
 ```
 
-Compose 将管理台发布到 `http://localhost:8088`，并把后端诊断端口绑定到 `127.0.0.1:8180`。Nginx 托管 SPA，并把同源 `/recon` 反向代理到 Compose 内部后端；`GET /healthz` 用于容器存活检查。默认具名卷 `recon-platform-data` 保存本地 H2 数据，`docker compose down` 或重新构建不会删除它；只有显式 `docker compose down -v` 才会清除数据。
+Compose 将管理台发布到 `http://localhost:8088`，并把后端诊断端口绑定到 `127.0.0.1:8180`。Nginx 托管 SPA，并把同源 `/recon` 反向代理到 Compose 内部后端；`GET /healthz` 用于容器存活检查，并开放无凭据跨域 GET 供本地能力门户探活。默认具名卷 `recon-platform-data` 保存本地 H2 数据，`docker compose down` 或重新构建不会删除它；只有显式 `docker compose down -v` 才会清除数据。
 
 ## 当前安全边界
 

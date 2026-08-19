@@ -54,6 +54,12 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-batch</artifactId>
         </dependency>
+        <!-- A1: OAuth2 Resource Server. 按 Casdoor 签发的 JWT 验签 (JWKS) + 角色授权.
+             recon.auth.issuer-uri 空时 (本地/测试) 用占位解码器, 不触发网络, 无 token 请求由 filter 直接 401. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
@@ -76,6 +82,12 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- A1: MockMvc 鉴权测试 (SecurityMockMvcRequestPostProcessors.jwt()). -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../api/client'
 import { closeDiscrepancy, getDiscrepancy, resolveDiscrepancy } from '../../api/recon'
 import type { ClearRequest, DiscrepancySummary } from '../../api/types'
-import { App, Button, Collapse, Descriptions, Divider, Drawer, Empty, Form, Grid, Input, Modal, Space, Table, Timeline, Typography } from 'antd'
+import { useAuth } from '../../auth/AuthContext'
+import { App, Alert, Button, Collapse, Descriptions, Divider, Drawer, Empty, Form, Grid, Input, Modal, Space, Table, Timeline, Typography } from 'antd'
 import { CheckCircleOutlined, StopOutlined } from '@ant-design/icons'
 import { ErrorState, PageSkeleton } from '../common/AsyncState'
 import { DiscrepancyTypeTag, DispositionStatusTag } from '../common/StatusTag'
@@ -12,7 +13,6 @@ import { errorMessage, formatDateTime, formatMinor } from '../../utils/format'
 type Action = 'resolve' | 'close'
 
 interface ActionValues {
-  operator: string
   note?: string
 }
 
@@ -33,6 +33,7 @@ export function DiscrepancyDetailDrawer({ discrepancyId, onClose }: Props) {
   const [form] = Form.useForm<ActionValues>()
   const queryClient = useQueryClient()
   const { message } = App.useApp()
+  const auth = useAuth()
   const detail = useQuery({
     queryKey: ['discrepancy-detail', discrepancyId],
     queryFn: () => getDiscrepancy(discrepancyId!),
@@ -42,15 +43,15 @@ export function DiscrepancyDetailDrawer({ discrepancyId, onClose }: Props) {
   const mutation = useMutation({
     mutationFn: async (values: ActionValues) => {
       const request: ClearRequest = {
-        operator: values.operator.trim(),
+        // operator: secure profile 由后端从 JWT 取(忽略此字段);dev 回退用会话身份名。
+        operator: auth.user?.name,
         note: values.note?.trim() || undefined,
         expectedVersion: detail.data?.discrepancy.dispositionVersion ?? undefined,
       }
       if (action === 'resolve') return resolveDiscrepancy(discrepancyId!, request)
       return closeDiscrepancy(discrepancyId!, request)
     },
-    onSuccess: async (result, values) => {
-      sessionStorage.setItem('recon-console.operator', values.operator.trim())
+    onSuccess: async (result) => {
       message.success(result.status === 'RESOLVED' ? '差异已核销' : '差异已关闭')
       setAction(null)
       form.resetFields()
@@ -72,12 +73,14 @@ export function DiscrepancyDetailDrawer({ discrepancyId, onClose }: Props) {
   })
 
   const openAction = (next: Action) => {
-    form.setFieldsValue({ operator: sessionStorage.getItem('recon-console.operator') || '', note: '' })
+    form.setFieldsValue({ note: '' })
     setAction(next)
   }
 
   const discrepancy = detail.data?.discrepancy
-  const actions = discrepancy ? allowedActions(discrepancy) : []
+  // recon.dispose 才可核销/关闭(观察员只读);后端授权仍是安全边界。
+  const canDispose = auth.can('recon.dispose')
+  const actions = discrepancy && canDispose ? allowedActions(discrepancy) : []
 
   return (
     <>
@@ -200,9 +203,12 @@ export function DiscrepancyDetailDrawer({ discrepancyId, onClose }: Props) {
         destroyOnHidden
       >
         <Form<ActionValues> form={form} layout="vertical" onFinish={(values) => mutation.mutate(values)} requiredMark="optional">
-          <Form.Item name="operator" label="操作人" rules={[{ required: true, whitespace: true, message: '请输入操作人' }, { max: 64 }] }>
-            <Input autoFocus placeholder="鉴权接入前需手工填写" />
-          </Form.Item>
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message={<>处置人：<b>{auth.user?.name || '当前用户'}</b>（取自登录身份，无需手工填写）</>}
+          />
           <Form.Item name="note" label="处理备注" rules={[{ max: 512, message: '备注不能超过 512 字符' }] }>
             <Input.TextArea rows={4} showCount maxLength={512} placeholder="记录核验依据或关闭原因" />
           </Form.Item>
