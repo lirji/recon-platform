@@ -17,7 +17,8 @@ services:
     ports:
       - "127.0.0.1:8180:8080"
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/recon/dashboard || exit 1"]
+      # A4: 改用 actuator readiness 探针 (DB + 迁移就绪才算 healthy); health 端点在 secure 亦 permitAll, 无需凭证。
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/actuator/health/readiness || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 12

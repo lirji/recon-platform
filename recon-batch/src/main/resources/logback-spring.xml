@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  A4 结构化日志: 按 profile 分流。
+   - 非 secure(本地/dev/测试): 沿用 Spring Boot 默认<b>可读控制台</b>格式,不改开发体验;
+   - secure(生产): 输出<b>行分隔 JSON</b>(logstash-logback-encoder)到 stdout,便于容器日志被 ELK/Loki 聚合与检索。
+  仅切换输出格式,不改日志级别/内容;批作业失败由 ReconJobMetricsListener 打结构化 ERROR(见 A4)。
+-->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <springProfile name="!secure">
+        <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <springProfile name="secure">
+        <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <!-- 固定应用名字段, 与 Micrometer management.metrics.tags.application 对齐, 便于日志↔指标关联。 -->
+                <customFields>{"application":"recon-batch"}</customFields>
+                <includeMdc>true</includeMdc>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="JSON"/>
+        </root>
+    </springProfile>
+</configuration>

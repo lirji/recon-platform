@@ -77,6 +77,15 @@ recon:
   # M5 告警中继: outbox 投递上限 (超过则视为死信不再补投).
   alert:
     max-attempt: ${RECON_ALERT_MAX_ATTEMPT:5}
+    # A2 生产级投递: webhook.url 非空则 WebhookAlertDispatcher 作 @Primary 覆盖 LoggingAlertDispatcher (向该 URL POST
+    # JSON 信封, 适配钉钉/飞书/Slack 机器人或 HTTP 告警网关); 为空(默认)则仍用日志兜底, 不发外部请求. 密钥经
+    # header-name/header-value 注入请求头(环境变量提供, 不落配置文件).
+    webhook:
+      url: ${RECON_ALERT_WEBHOOK_URL:}
+      connect-timeout-ms: ${RECON_ALERT_WEBHOOK_CONNECT_TIMEOUT_MS:3000}
+      read-timeout-ms: ${RECON_ALERT_WEBHOOK_READ_TIMEOUT_MS:5000}
+      header-name: ${RECON_ALERT_WEBHOOK_HEADER_NAME:}
+      header-value: ${RECON_ALERT_WEBHOOK_HEADER_VALUE:}
   # A1 认证鉴权 (对齐 risk-platform 范式): recon-batch 作 OAuth2 Resource Server, 校验 auth-platform(Casdoor) 签发的 JWT.
   #  - 仅 secure profile (SPRING_PROFILES_ACTIVE=secure) 生效 CasdoorSecurityConfig: JWKS 验签 + issuer + audience allowlist
   #    + owner(组织) + 非空 sub; 授权按 permissions 判 (recon.read/dispose/launch).
@@ -115,3 +124,36 @@ recon:
       # (依赖 Java hashCode+avalanche, 无可移植 SQL 等价). 故默认关, 作显式 opt-in 兜底; 开启代价见 BucketPartitioner 告警日志.
       enabled: ${RECON_SKEW_SUBBUCKET_ENABLED:false}
       fanout: ${RECON_SKEW_SUBBUCKET_FANOUT:8}
+
+# A4 可观测性: actuator 端点 + liveness/readiness 探针 + Micrometer→Prometheus 计量.
+#  - health/info 在 secure profile 由 CasdoorSecurityConfig permitAll (供探针无凭证访问, 不泄露细节);
+#    metrics/prometheus 落在 anyRequest().authenticated() —— 采集器需带 Bearer 或在受控内网经网关限制.
+#  - readiness 分组 = readinessState + db(数据源健康): 未就绪(如 DB 未连上/迁移未完成)时不进流量.
+#  - Spring Batch 5 在 MeterRegistry 存在时自动产 spring.batch.job/step 计量(含 status=FAILED); 另见
+#    ReconJobMetricsListener 的 recon.job.failures / recon.job.duration 自定义计量(批作业失败告警的计量侧).
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+      show-components: when_authorized
+      group:
+        readiness:
+          include: readinessState,db
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name:recon-batch}
+  prometheus:
+    metrics:
+      export:
+        enabled: true
