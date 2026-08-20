@@ -13,9 +13,9 @@ import java.util.List;
  * {@link ConservationPartialRepository} 的 JDBC 实现 (M3 单遍守恒局部结果 {@code recon_report_partial})。
  *
  * <p>幂等 upsert 走可移植 <b>update-else-insert</b> (借鉴既有 {@code JdbcReconReportStore} 范式):
- * 先按 {@code uk_partial(run_id, segment_id, bucket, currency)} 条件 UPDATE, 未命中再经 savepoint INSERT;
- * 并发撞唯一键安全回退再 UPDATE。partition 每 chunk 落"累计到当前"的快照 → 完成即完整局部结果;
- * 断点/重放同键覆盖, 无重复行。
+ * 先按 {@code uk_partial(run_id, segment_id, bucket, sub_index, currency)} 条件 UPDATE, 未命中再经 savepoint INSERT;
+ * 并发撞唯一键安全回退再 UPDATE。partition 每 chunk 落"累计到当前"的快照 → 完成即完整局部结果; 断点/重放同键覆盖, 无重复行。
+ * <b>多 partition 并行 INSERT 的 MySQL 间隙锁死锁由全局 READ COMMITTED 消除</b>(KI-8; MySQL 默认 RR 会死锁, H2 本就 RC)。
  */
 @Repository
 public class JdbcConservationPartialStore implements ConservationPartialRepository {
@@ -54,6 +54,9 @@ public class JdbcConservationPartialStore implements ConservationPartialReposito
     @Override
     public void savePartials(Iterable<ConservationPartial> partials) {
         for (ConservationPartial p : partials) {
+            // update-else-insert: 先 UPDATE(同 partition 后续 chunk 覆盖累计快照走此高效路径), 未命中再 savepoint INSERT,
+            // 并发/断点撞唯一键安全回退再 UPDATE。多 partition 并行 INSERT 的 MySQL 间隙锁死锁由全局
+            // READ COMMITTED 消除(KI-8, application.yml hikari.transaction-isolation), 与 upsert 顺序无关。
             if (update(p) != 1) {
                 if (!inserts.execute(() -> insert(p))) {
                     update(p);

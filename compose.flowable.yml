@@ -1,0 +1,11 @@
+# 叠加层: 开启 B5 Flowable 冲正审批工作流。
+# 默认引擎用 backend 容器内 H2 内存库(WorkflowConfig 默认 jdbc:h2:mem:recon-flowable),
+# 仅 dev 验证 —— backend 重启会丢失流程状态(待办任务)。生产应把引擎库指向持久化 DB
+# (RECON_WORKFLOW_FLOWABLE_JDBC_URL/DRIVER/USERNAME/PASSWORD)。
+#
+# 用法(叠加在默认 MySQL8 部署之上):
+#   docker compose -f compose.yml -f compose.mysql.yml -f compose.flowable.yml up -d --no-build --wait
+services:
+  backend:
+    environment:
+      RECON_WORKFLOW_FLOWABLE_ENABLED: "true"

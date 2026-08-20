@@ -16,6 +16,10 @@ spring:
       # 并发度 = recon.partition.pool-size (默认 4) → 需 ~12 连接; 加 JobRepository/汇总步余量, 池设 20.
       # 生产按 partition 池大小 × 3 + 余量调, 并与 DB max_connections 对齐 (DB_POOL_SIZE 覆盖).
       maximum-pool-size: ${DB_POOL_SIZE:20}
+      # KI-8: 全局 READ COMMITTED. MySQL 默认 REPEATABLE READ 下, 多 partition 并行 INSERT recon_report_partial
+      # 会因唯一索引 uk_partial 的间隙锁交叉死锁 (整 Job FAILED). RC 下 INSERT/UPDATE 不加间隙锁, 并发插不同
+      # bucket 值不死锁. H2 本就默认 RC (此设置对 H2 测试无影响); 对账批处理只需快照读, RC 足够, 不依赖 RR 可重复读.
+      transaction-isolation: TRANSACTION_READ_COMMITTED
   flyway:
     enabled: true
     # V1 领域 schema 在 db/migration (MySQL8/PG/H2 通用, 无子目录); V3 match_key collation pin (遗留②) 按方言放

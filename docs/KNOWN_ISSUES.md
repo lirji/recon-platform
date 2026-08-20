@@ -47,3 +47,9 @@
 - **不可恢复语法/编码错误**：字段语义错误可逐条 reject 后继续；但未闭合引号、截断文件或非法字节会让流式解析器失去可靠记录边界。适配器会记录当前物理行 reject 并停止该文件，避免猜测边界后错位入账。上游应先做文件完整性/校验和检查。
 - **reject 峰值内存**：现有 `RecordCursor` SPI 以列表返回 reject；极端全坏文件会在单侧游标关闭前累计 reject 元数据。正常文件不 materialize 记录，仍是流式；大批坏行应通过上游质量门禁拦截，后续可把 SPI 改为 reject sink/流式回调。
 - **行号身份漂移**：null match_key 的 fingerprint 以 `raw_ref=file:line` 鉴别。同一文件若在原行之前插行，重跑时该类记录 fingerprint 会变化，旧人工处置按 A1 进入 STALE 而非 re-link。生产应把输入文件视为不可变快照；若业务有稳定源主键，后续可把它加入文件血缘身份。
+
+## KI-8 · 多 partition 并行写 recon_report_partial 的 MySQL 间隙锁死锁（已修）
+
+- **触发**：MySQL（默认 REPEATABLE READ）+ `bucketCount>1` 多 partition 并行 + 数据分布到 ≥2 个 bucket 时，并行 `INSERT recon_report_partial` 因唯一索引 `uk_partial` 的间隙锁（gap lock）交叉死锁 → **整个 Job FAILED**（`CannotAcquireLockException: Deadlock found`，伴 savepoint 回滚二次异常 `SAVEPOINT does not exist`）。H2 默认 RC 不触发，故 H2 集成测试查不出；单 bucket（或数据只落 1 桶）也不触发。
+- **已修（2026-08-20）**：`spring.datasource.hikari.transaction-isolation=TRANSACTION_READ_COMMITTED`（application.yml）。RC 下 `INSERT`/`UPDATE` 不加间隙锁，并发插不同 bucket 唯一键值不死锁。对账批处理只需快照读语义，RC 足够（不依赖 RR 可重复读）；H2 本就默认 RC，此设置对测试无影响。`savePartials` 保持 `update-else-insert`（upsert 顺序与 RC 下的锁行为无关——曾试反转 insert-first 仍死锁，证明根因是并发 INSERT 间隙锁而非 UPDATE-不命中）。
+- **验证**：真库 MySQL 8 `bucketCount=8` 端到端 **COMPLETED + balanced，0 deadlock**（此前 RR 下同配置必 FAILED）。
