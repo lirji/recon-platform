@@ -2,6 +2,7 @@ package com.lrj.recon.batch;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * recon-batch 组合根 (Spring Boot 应用)。
@@ -11,6 +12,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * <b>本轮不引入 Spring Batch 依赖、不编排 Job</b> (归 M2)。DataSource/Flyway 由 application.yml 驱动 Boot autoconfig。
  */
 @SpringBootApplication
+@EnableScheduling
 public class ReconBatchApplication {
 
     public static void main(String[] args) {

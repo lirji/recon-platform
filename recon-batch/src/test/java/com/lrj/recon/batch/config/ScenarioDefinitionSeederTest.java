@@ -1,6 +1,7 @@
 package com.lrj.recon.batch.config;
 
 import com.lrj.recon.batch.service.ScenarioDefinitionStore;
+import com.lrj.recon.scenario.BenefitCashThreeWayScenario;
 import com.lrj.recon.scenario.MarketingThreeWayScenario;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +33,10 @@ class ScenarioDefinitionSeederTest {
         ScenarioDefinitionStore.Stored s = store.find(MarketingThreeWayScenario.SCENARIO_CODE).orElseThrow();
         assertThat(s.enabled()).isTrue();
         assertThat(s.definition().segments()).hasSize(2);
+
+        ScenarioDefinitionStore.Stored benefit = store.find(BenefitCashThreeWayScenario.SCENARIO_CODE).orElseThrow();
+        assertThat(benefit.enabled()).isFalse();
+        assertThat(benefit.definition().segments()).hasSize(2);
     }
 
     @Test

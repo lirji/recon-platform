@@ -33,6 +33,10 @@
             <groupId>com.lrj.recon</groupId>
             <artifactId>recon-scenario</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.lrj.recon</groupId>
+            <artifactId>recon-entitlement</artifactId>
+        </dependency>
         <!-- M5: 处理链 (LedgerHandler / ReversalSuggestionHandler / AlertHandler / FlowableTicketHandler). -->
         <dependency>
             <groupId>com.lrj.recon</groupId>
@@ -75,6 +79,10 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
         </dependency>
         <dependency>
             <groupId>io.micrometer</groupId>

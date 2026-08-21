@@ -76,6 +76,8 @@ public class CasdoorSecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/recon/reversal-approvals/**").hasAuthority("recon.dispose")
                         // B3 冲正执行(真实资金动作)→ recon.launch(最高权限,与审批独立控制点)。
                         .requestMatchers(HttpMethod.POST, "/recon/reversal-executions/**").hasAuthority("recon.launch")
+                        .requestMatchers(HttpMethod.POST, "/recon/benefit-ods/**").hasAuthority("recon.launch")
+                        .requestMatchers(HttpMethod.POST, "/recon/benefit-remediations/**").hasAuthority("recon.dispose")
                         // 其余 /recon/** (dashboard/runs/discrepancies 读 + 报表 + 场景读) → recon.read (viewer+)。
                         .requestMatchers("/recon/**").hasAuthority("recon.read")
                         .anyRequest().authenticated())

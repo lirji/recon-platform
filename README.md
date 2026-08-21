@@ -7,6 +7,7 @@
 运营管理台位于 **`recon-console`**，采用 React 18 / TypeScript / Vite 5 / Ant Design 5；前后端独立构建，通过同源 `/recon` 接口联调。
 
 > 完整架构决策与字段级设计见 **[`docs/design/RECON_MVP_DESIGN.md`](docs/design/RECON_MVP_DESIGN.md)**（judge-panel 综合定稿，含领域模型、DDL、四接口签名、桥接两段匹配时序、ADR、口径决议 A0–A8）。
+> 企业权益中台的现金/非现金事实分流、ODS 幂等和审批后补发/冲正链路见 **[`docs/benefit-center-integration.md`](docs/benefit-center-integration.md)**。
 
 ---
 

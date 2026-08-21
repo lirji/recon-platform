@@ -40,9 +40,24 @@ spring:
     job:
       # 不在应用启动时自动跑 Job (由调度/REST/测试显式 JobLauncher 触发). M5 起接调度.
       enabled: false
+  kafka:
+    bootstrap-servers: ${RECON_KAFKA_BOOTSTRAP:localhost:9092}
 
 # M2 记录游标批取行数 (非 MySQL); MySQL 走 fetchSize=Integer.MIN_VALUE 真流式 (隐患②, 代码内按方言判定).
 recon:
+  remediation:
+    relay-enabled: ${RECON_REMEDIATION_RELAY_ENABLED:false}
+    command-topic: ${RECON_REMEDIATION_COMMAND_TOPIC:benefit.remediation.command.v1}
+    result-consumer-enabled: ${RECON_REMEDIATION_RESULT_CONSUMER_ENABLED:false}
+    result-topic: ${RECON_REMEDIATION_RESULT_TOPIC:benefit.remediation.result.v1}
+    result-group: ${RECON_REMEDIATION_RESULT_GROUP:recon-benefit-remediation-result-v1}
+    max-attempts: ${RECON_REMEDIATION_MAX_ATTEMPTS:10}
+    relay-delay-ms: ${RECON_REMEDIATION_RELAY_DELAY_MS:5000}
+  ods:
+    benefit:
+      kafka-enabled: ${RECON_BENEFIT_ODS_KAFKA_ENABLED:false}
+      topic: ${RECON_BENEFIT_ODS_TOPIC:benefit.fulfillment-event.v1}
+      group-id: ${RECON_BENEFIT_ODS_GROUP:recon-benefit-ods-v1}
   record-cursor:
     fetch-size: 1000
   # M6 数据源选择: 默认 DB 保持向后兼容；切换 csv-file 时三条文件路径必填。

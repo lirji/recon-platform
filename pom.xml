@@ -27,6 +27,7 @@
         <module>recon-source-db</module>
         <module>recon-source-csv</module>
         <module>recon-scenario</module>
+        <module>recon-entitlement</module>
         <module>recon-handler</module>
         <module>recon-rules-drools</module>
         <module>recon-workflow-flowable</module>
@@ -71,6 +72,11 @@
             <dependency>
                 <groupId>com.lrj.recon</groupId>
                 <artifactId>recon-scenario</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.lrj.recon</groupId>
+                <artifactId>recon-entitlement</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

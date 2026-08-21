@@ -1,0 +1,16 @@
+package com.lrj.recon.entitlement.model;
+
+public enum EntitlementDiscrepancyType {
+    CLEAN,
+    MISSING_INTERNAL,
+    MISSING_PROVIDER,
+    EXTRA_INTERNAL,
+    EXTRA_PROVIDER,
+    DUPLICATE_INTERNAL,
+    DUPLICATE_PROVIDER,
+    QUANTITY_MISMATCH,
+    SKU_MISMATCH,
+    STATUS_MISMATCH,
+    PROVIDER_REFERENCE_MISMATCH,
+    UNKNOWN
+}
