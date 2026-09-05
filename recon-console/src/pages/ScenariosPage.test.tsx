@@ -24,6 +24,7 @@ describe('ScenariosPage', () => {
   it('renders scenarios with enabled/disabled tags', async () => {
     renderApp(<ScenariosPage />)
     expect(await screen.findByText('MARKETING_3WAY')).toBeInTheDocument()
+    expect(screen.getByText('内置')).toBeInTheDocument()
     expect(screen.getByText('OFF_ONE')).toBeInTheDocument()
     expect(screen.getByText('启用')).toBeInTheDocument()
     expect(screen.getByText('停用')).toBeInTheDocument()

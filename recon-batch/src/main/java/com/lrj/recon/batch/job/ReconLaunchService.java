@@ -6,6 +6,10 @@ import com.lrj.recon.batch.service.NotFoundException;
 import com.lrj.recon.core.application.port.out.ReconRunRepository;
 import com.lrj.recon.core.application.port.out.ReconRunSeqRepository;
 import com.lrj.recon.core.domain.model.ReconRun;
+import com.lrj.recon.core.domain.model.RunKey;
+import com.lrj.recon.scenario.BenefitCashThreeWayScenario;
+import com.lrj.recon.scenario.dsl.AssembledScenario;
+import com.lrj.recon.entitlement.scenario.EntitlementFulfillmentScenario;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.JobExecution;
 import org.springframework.batch.core.JobParametersInvalidException;
@@ -21,6 +25,10 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.Map;
 
 /**
@@ -47,6 +55,7 @@ public class ReconLaunchService {
     private final String defaultScenarioCode;
     private final String defaultJobName;
     private final String genericJobName;
+    private final String entitlementJobName;
 
     public ReconLaunchService(JobLauncher jobLauncher,
                               Map<String, Job> jobs,
@@ -56,7 +65,8 @@ public class ReconLaunchService {
                               @Value("${recon.launch.bucket-count:64}") int defaultBucketCount,
                               @Value("${recon.launch.scenario-code:MARKETING_3WAY}") String defaultScenarioCode,
                               @Value("${recon.launch.default-job:marketingThreeWayJob}") String defaultJobName,
-                              @Value("${recon.launch.generic-job:genericReconJob}") String genericJobName) {
+                              @Value("${recon.launch.generic-job:genericReconJob}") String genericJobName,
+                              @Value("${recon.launch.entitlement-job:entitlementFulfillmentJob}") String entitlementJobName) {
         this.jobLauncher = jobLauncher;
         this.jobs = jobs;
         this.seqRepo = seqRepo;
@@ -66,6 +76,7 @@ public class ReconLaunchService {
         this.defaultScenarioCode = requireText("configured scenarioCode", defaultScenarioCode);
         this.defaultJobName = requireText("configured default jobName", defaultJobName);
         this.genericJobName = requireText("configured generic jobName", genericJobName);
+        this.entitlementJobName = requireText("configured entitlement jobName", entitlementJobName);
     }
 
     /** REST/scheduler 发起入口: 分配序号 + launch。 */
@@ -74,6 +85,12 @@ public class ReconLaunchService {
             throw new IllegalArgumentException("launch command must not be null");
         }
         String scenario = requireText("scenarioCode", cmd.scenarioCode());
+        String tenantId = cmd.tenantId() == null ? RunKey.LEGACY_TENANT : requireText("tenantId", cmd.tenantId());
+        if ((BenefitCashThreeWayScenario.SCENARIO_CODE.equals(scenario)
+                || EntitlementFulfillmentScenario.SCENARIO_CODE.equals(scenario))
+                && RunKey.LEGACY_TENANT.equals(tenantId)) {
+            throw new IllegalArgumentException("tenantId is required for benefit reconciliation");
+        }
         if (scenario.length() > MAX_SCENARIO_CODE_LENGTH) {
             throw new IllegalArgumentException("scenarioCode must not exceed " + MAX_SCENARIO_CODE_LENGTH + " characters");
         }
@@ -104,8 +121,8 @@ public class ReconLaunchService {
         }
 
         int seq = seqRepo.nextSequence(scenario, period);
-        String runId = buildRunId(scenario, period, seq);
-        ReconJobContext ctx = new ReconJobContext(runId, scenario, period, seq, cutoff, windowFrom, windowTo,
+        String runId = buildRunId(tenantId, scenario, period, seq);
+        ReconJobContext ctx = new ReconJobContext(runId, tenantId, scenario, period, seq, cutoff, windowFrom, windowTo,
                 bucketCount, 1L);
         return run(job, ctx);
     }
@@ -115,7 +132,7 @@ public class ReconLaunchService {
         ReconRun run = runs.find(runId).orElseThrow(() -> new NotFoundException("run not found: " + runId));
         Job job = resolveJob(defaultJobNameFor(run.scenarioCode()));
         long attempt = System.currentTimeMillis(); // 新 attempt → 新 JobInstance (业务重跑)
-        ReconJobContext ctx = new ReconJobContext(runId, run.scenarioCode(), run.accountingPeriod(),
+        ReconJobContext ctx = new ReconJobContext(runId, run.tenantId(), run.scenarioCode(), run.accountingPeriod(),
                 run.sequenceNo(), run.cutoffTime(), run.matchWindowFrom(), run.matchWindowTo(),
                 run.bucketCount(), attempt);
         return run(job, ctx);
@@ -124,7 +141,7 @@ public class ReconLaunchService {
     private LaunchResult run(Job job, ReconJobContext ctx) {
         try {
             JobExecution exec = jobLauncher.run(job, ctx.toJobParameters());
-            return new LaunchResult(ctx.runId(), ctx.sequenceNo(), exec.getStatus().toString(), exec.getId());
+            return new LaunchResult(ctx.runId(), ctx.tenantId(), ctx.sequenceNo(), exec.getStatus().toString(), exec.getId());
         } catch (JobExecutionAlreadyRunningException | JobInstanceAlreadyCompleteException
                  | JobRestartException | JobParametersInvalidException e) {
             throw new IllegalStateException("failed to launch job for run " + ctx.runId() + ": " + e.getMessage(), e);
@@ -151,11 +168,18 @@ public class ReconLaunchService {
         if (defaultScenarioCode.equals(scenarioCode)) {
             return defaultJobName;
         }
+        if (EntitlementFulfillmentScenario.SCENARIO_CODE.equals(scenarioCode)) {
+            return entitlementJobName;
+        }
         if (!scenarios.isRunnable(scenarioCode)) {
             throw new IllegalArgumentException("unsupported scenarioCode '" + scenarioCode
                     + "'; not the built-in '" + defaultScenarioCode + "' and not an enabled config-defined scenario");
         }
-        int segments = scenarios.assemble(scenarioCode).segments().size();
+        AssembledScenario assembled = scenarios.assemble(scenarioCode);
+        if (BenefitCashThreeWayScenario.SCENARIO_CODE.equals(scenarioCode)) {
+            validateTenantScopedBenefitSources(assembled);
+        }
+        int segments = assembled.segments().size();
         if (segments != GenericReconJobConfig.EXPECTED_SEGMENTS) {
             throw new IllegalArgumentException("config scenario '" + scenarioCode + "' has " + segments
                     + " segments; genericReconJob handles " + GenericReconJobConfig.EXPECTED_SEGMENTS
@@ -164,13 +188,40 @@ public class ReconLaunchService {
         return genericJobName;
     }
 
-    /** runId 派生: {@code scenario:period:seq} (recon_run.run_id VARCHAR(64), MVP 场景码短, 不超长)。 */
-    private static String buildRunId(String scenario, String period, int seq) {
-        String runId = scenario + ":" + period + ":" + seq;
+    /**
+     * 现金权益场景即使被管理台改过，也必须保留数据库侧 tenant/window 谓词；缺任一项就拒绝发起，
+     * 防止配置误操作退化成全租户、全历史扫描。
+     */
+    private static void validateTenantScopedBenefitSources(AssembledScenario scenario) {
+        scenario.segments().forEach(segment -> java.util.List.of(segment.leftSource(), segment.rightSource())
+                .forEach(source -> {
+                    if (!"db".equals(source.sourceType())
+                            || !"tenant_id".equals(source.params().get("tenantColumn"))
+                            || isBlank(source.params().get("windowTimeColumn"))) {
+                        throw new IllegalArgumentException("benefit cash source '"
+                                + source.params().getOrDefault("table", "unknown")
+                                + "' must enforce db tenantColumn=tenant_id and windowTimeColumn");
+                    }
+                }));
+    }
+
+    /** 新租户 Run 用租户摘要隔离主键；legacy 保持原 runId 格式以兼容已有链接。 */
+    private static String buildRunId(String tenantId, String scenario, String period, int seq) {
+        String prefix = RunKey.LEGACY_TENANT.equals(tenantId) ? "" : tenantHash(tenantId) + ":";
+        String runId = prefix + scenario + ":" + period + ":" + seq;
         if (runId.length() > 64) {
             throw new IllegalArgumentException("derived runId too long (>64): " + runId);
         }
         return runId;
+    }
+
+    private static String tenantHash(String tenantId) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(tenantId.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest, 0, 4);
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 is unavailable", impossible);
+        }
     }
 
     private static LocalDate parsePeriod(String period) {
@@ -188,6 +239,10 @@ public class ReconLaunchService {
         return value.trim();
     }
 
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
     /** 发起指令 (REST 请求体 / scheduler 参数); 窗口/cutoff/桶数可空, 空则由账期派生默认。 */
     public record LaunchCommand(
             String scenarioCode,
@@ -196,10 +251,17 @@ public class ReconLaunchService {
             Integer bucketCount,
             Instant cutoffTime,
             Instant matchWindowFrom,
-            Instant matchWindowTo) {
+            Instant matchWindowTo,
+            String tenantId) {
+
+        public LaunchCommand(String scenarioCode, String accountingPeriod, String jobName, Integer bucketCount,
+                             Instant cutoffTime, Instant matchWindowFrom, Instant matchWindowTo) {
+            this(scenarioCode, accountingPeriod, jobName, bucketCount, cutoffTime, matchWindowFrom,
+                    matchWindowTo, null);
+        }
     }
 
     /** 发起结果 (纯数据, 无批类型): runId + 序号 + Batch 执行态 + 执行 id。 */
-    public record LaunchResult(String runId, int sequenceNo, String status, Long jobExecutionId) {
+    public record LaunchResult(String runId, String tenantId, int sequenceNo, String status, Long jobExecutionId) {
     }
 }

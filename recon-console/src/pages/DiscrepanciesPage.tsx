@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { EyeOutlined, FilterOutlined, ReloadOutlined } from '@ant-design/icons'
@@ -9,8 +9,10 @@ import { EmptyState, ErrorState } from '../components/common/AsyncState'
 import { PageHeader } from '../components/common/PageHeader'
 import { DiscrepancyTypeTag, DispositionStatusTag, discrepancyTypeLabels } from '../components/common/StatusTag'
 import { DiscrepancyDetailDrawer } from '../components/discrepancies/DiscrepancyDetailDrawer'
+import { DEFAULT_SEGMENT_OPTIONS } from '../constants/scenario'
 import { colors } from '../theme/colors'
 import { errorMessage, formatDateTime, formatMinor } from '../utils/format'
+import { pickSearchParams, toSearchParams } from '../utils/searchParams'
 
 const typeOptions = Object.entries(discrepancyTypeLabels).map(([value, label]) => ({ value, label }))
 const statusOptions = [
@@ -21,10 +23,6 @@ const statusOptions = [
   ['REOPENED', '已重开'],
   ['STALE', '已失效'],
 ].map(([value, label]) => ({ value, label }))
-const segmentOptions = [
-  { value: 'SEG1_MKT_ACCT', label: 'SEG1 营销 ↔ 账务' },
-  { value: 'SEG2_ACCT_CHANNEL', label: 'SEG2 账务 ↔ 渠道' },
-]
 
 function deltaColor(value: string): string {
   try {
@@ -34,36 +32,56 @@ function deltaColor(value: string): string {
   }
 }
 
-// 从 URL query 播种初始过滤(支撑三方 roll-up 桥断下钻 /discrepancies?runId&segmentId&type=...);无 query 时行为不变。
-const SEEDABLE_KEYS = ['runId', 'segmentId', 'type', 'status', 'currency', 'q'] as const
-
-function seedFromParams(params: URLSearchParams): Partial<DiscrepancyFilters> {
-  const seeded: Partial<DiscrepancyFilters> = {}
-  for (const key of SEEDABLE_KEYS) {
-    const value = params.get(key)
-    if (value) seeded[key] = value
-  }
-  return seeded
-}
+const FILTER_KEYS = ['runId', 'segmentId', 'type', 'status', 'currency', 'q'] as const
 
 export function DiscrepanciesPage() {
   const screens = Grid.useBreakpoint()
-  const [searchParams] = useSearchParams()
-  const [initialSeed] = useState(() => seedFromParams(searchParams))
+  const [searchParams, setSearchParams] = useSearchParams()
+  const seeded = pickSearchParams(searchParams, FILTER_KEYS)
   const [form] = Form.useForm<DiscrepancyFilters>()
-  const [filters, setFilters] = useState<DiscrepancyFilters>(() => ({ ...initialSeed, page: 0, size: 20 }))
+  const [pageState, setPageState] = useState({ page: 0, size: 20 })
   const [discrepancyId, setDiscrepancyId] = useState<string | null>(null)
+  const filters: DiscrepancyFilters = { ...seeded, ...pageState }
   const discrepancies = useQuery({
     queryKey: ['discrepancies', filters],
     queryFn: () => listDiscrepancies(filters),
   })
 
-  const applyFilters = (values: DiscrepancyFilters) => setFilters({ ...values, page: 0, size: filters.size || 20 })
+  useEffect(() => {
+    form.setFieldsValue({
+      q: seeded.q,
+      status: seeded.status,
+      type: seeded.type,
+      segmentId: seeded.segmentId,
+      currency: seeded.currency,
+      runId: seeded.runId,
+    })
+  }, [form, seeded.q, seeded.status, seeded.type, seeded.segmentId, seeded.currency, seeded.runId])
+
+  const segmentOptions = useMemo(() => {
+    if (seeded.segmentId && !DEFAULT_SEGMENT_OPTIONS.some((item) => item.value === seeded.segmentId)) {
+      return [...DEFAULT_SEGMENT_OPTIONS, { value: seeded.segmentId, label: seeded.segmentId }]
+    }
+    return DEFAULT_SEGMENT_OPTIONS
+  }, [seeded.segmentId])
+
+  const applyFilters = (values: DiscrepancyFilters) => {
+    setPageState((current) => ({ page: 0, size: current.size }))
+    setSearchParams(toSearchParams({
+      q: values.q,
+      status: values.status,
+      type: values.type,
+      segmentId: values.segmentId,
+      currency: values.currency,
+      runId: values.runId,
+    }), { replace: true })
+  }
   const resetFilters = () => {
     form.resetFields()
-    setFilters({ page: 0, size: filters.size || 20 })
+    setPageState((current) => ({ page: 0, size: current.size }))
+    setSearchParams({}, { replace: true })
   }
-  const hasFilters = Object.entries(filters).some(([key, value]) => !['page', 'size'].includes(key) && Boolean(value))
+  const hasFilters = FILTER_KEYS.some((key) => Boolean(seeded[key]))
 
   const columns = [
     {
@@ -76,7 +94,7 @@ export function DiscrepanciesPage() {
       title: '业务键',
       width: 220,
       render: (_: unknown, row: DiscrepancySummary) => (
-        <button className="cell-link" onClick={() => setDiscrepancyId(row.discrepancyId)}>
+        <button className="cell-link" aria-label={`查看差异 ${row.groupKey || row.matchKey || row.discrepancyId}`} onClick={() => setDiscrepancyId(row.discrepancyId)}>
           <strong>{row.groupKey || row.matchKey || '无业务键'}</strong>
           <small className="mono">{row.matchKey || row.discrepancyId}</small>
         </button>
@@ -104,7 +122,7 @@ export function DiscrepanciesPage() {
       />
 
       <Card className="filter-card">
-        <Form<DiscrepancyFilters> form={form} layout="vertical" initialValues={initialSeed} onFinish={applyFilters}>
+        <Form<DiscrepancyFilters> form={form} layout="vertical" onFinish={applyFilters}>
           <Row gutter={12}>
             <Col xs={24} md={12} xl={6}>
               <Form.Item name="q" label="关键字">
@@ -123,7 +141,7 @@ export function DiscrepanciesPage() {
             </Col>
             <Col xs={12} md={8} xl={5}>
               <Form.Item name="segmentId" label="对账分段">
-                <Select allowClear placeholder="全部" options={segmentOptions} />
+                <Select allowClear showSearch optionFilterProp="label" placeholder="全部" options={segmentOptions} />
               </Form.Item>
             </Col>
             <Col xs={12} md={4} xl={2}>
@@ -183,7 +201,7 @@ export function DiscrepanciesPage() {
               total={discrepancies.data.totalElements}
               showSizeChanger
               showTotal={(total) => `共 ${total} 条`}
-              onChange={(page, size) => setFilters((current) => ({ ...current, page: page - 1, size }))}
+              onChange={(page, size) => setPageState({ page: page - 1, size })}
             />
           </Row>
         )}

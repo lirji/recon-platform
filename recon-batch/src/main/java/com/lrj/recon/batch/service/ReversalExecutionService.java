@@ -41,9 +41,10 @@ public class ReversalExecutionService {
         if (r.status() == ReversalStatus.EXECUTED) {
             return new Result(reversalId, ReversalStatus.EXECUTED, true, "already executed (idempotent)");
         }
-        if (r.status() != ReversalStatus.CONFIRMED) {
+        // CONFIRMED 首次执行; EXECUTION_FAILED 允许显式重试(不自动动钱,仍走独立 launch 控制点)。
+        if (r.status() != ReversalStatus.CONFIRMED && r.status() != ReversalStatus.EXECUTION_FAILED) {
             throw new IllegalStateException("reversal " + reversalId + " is " + r.status()
-                    + "; only CONFIRMED reversals can be executed");
+                    + "; only CONFIRMED or EXECUTION_FAILED reversals can be executed");
         }
         String op = operator == null || operator.isBlank() ? "system" : operator;
         try {

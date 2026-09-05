@@ -9,6 +9,7 @@ import java.time.Instant;
 public final class EvaluationContext {
 
     private final String runId;
+    private final String tenantId;
     private final String scenarioCode;
     private final String accountingPeriod;
     private final String segmentId;
@@ -22,6 +23,7 @@ public final class EvaluationContext {
 
     private EvaluationContext(Builder b) {
         this.runId = b.runId;
+        this.tenantId = b.tenantId;
         this.scenarioCode = b.scenarioCode;
         this.accountingPeriod = b.accountingPeriod;
         this.segmentId = b.segmentId;
@@ -49,6 +51,7 @@ public final class EvaluationContext {
     }
 
     public String runId() { return runId; }
+    public String tenantId() { return tenantId; }
     public String scenarioCode() { return scenarioCode; }
     public String accountingPeriod() { return accountingPeriod; }
     public String segmentId() { return segmentId; }
@@ -67,6 +70,7 @@ public final class EvaluationContext {
 
     public static final class Builder {
         private String runId;
+        private String tenantId;
         private String scenarioCode;
         private String accountingPeriod;
         private String segmentId;
@@ -79,6 +83,7 @@ public final class EvaluationContext {
         private long fxToleranceMinor;
 
         public Builder runId(String v) { this.runId = v; return this; }
+        public Builder tenantId(String v) { this.tenantId = v; return this; }
         public Builder scenarioCode(String v) { this.scenarioCode = v; return this; }
         public Builder accountingPeriod(String v) { this.accountingPeriod = v; return this; }
         public Builder segmentId(String v) { this.segmentId = v; return this; }

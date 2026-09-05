@@ -32,8 +32,10 @@ import com.lrj.recon.core.domain.model.EvaluationContext;
 import com.lrj.recon.core.domain.model.MatchGroup;
 import com.lrj.recon.core.domain.model.ReconRecord;
 import com.lrj.recon.core.domain.model.Side;
+import com.lrj.recon.core.domain.model.SourceRole;
 import com.lrj.recon.core.domain.service.ConservationMerger;
 import com.lrj.recon.core.spi.SourceAdapter;
+import com.lrj.recon.core.spi.SourceDescriptor;
 import com.lrj.recon.core.spi.SourceReadContext;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
@@ -164,11 +166,17 @@ public class BatchConfig {
     @Bean
     @StepScope
     public SourceAdapterItemReader sourceReader(ReconJobContext ctx) {
-        SourceReadContext left = new SourceReadContext(ctx.runId(), plan.segmentId(), Side.LEFT,
-                plan.spec().leftRole(), ctx.bucketCount(), plan.leftSource());
-        SourceReadContext right = new SourceReadContext(ctx.runId(), plan.segmentId(), Side.RIGHT,
-                plan.spec().rightRole(), ctx.bucketCount(), plan.rightSource());
+        SourceReadContext left = sourceContext(ctx, plan.segmentId(), Side.LEFT,
+                plan.spec().leftRole(), plan.leftSource());
+        SourceReadContext right = sourceContext(ctx, plan.segmentId(), Side.RIGHT,
+                plan.spec().rightRole(), plan.rightSource());
         return new SourceAdapterItemReader(sourceAdapter, rejectStore, List.of(left, right));
+    }
+
+    private static SourceReadContext sourceContext(ReconJobContext ctx, String segmentId, Side side,
+                                                   SourceRole role, SourceDescriptor descriptor) {
+        return new SourceReadContext(ctx.runId(), ctx.tenantId(), segmentId, side, role, ctx.bucketCount(),
+                ctx.matchWindowFrom(), ctx.matchWindowTo(), descriptor);
     }
 
     @Bean
@@ -371,6 +379,7 @@ public class BatchConfig {
     @Scope(value = "job", proxyMode = ScopedProxyMode.NO)
     public ReconJobContext reconJobContext(
             @Value("#{jobParameters['runId']}") String runId,
+            @Value("#{jobParameters['tenantId'] ?: 'legacy'}") String tenantId,
             @Value("#{jobParameters['scenarioCode']}") String scenarioCode,
             @Value("#{jobParameters['accountingPeriod']}") String accountingPeriod,
             @Value("#{jobParameters['sequenceNo']}") Long sequenceNo,
@@ -379,7 +388,7 @@ public class BatchConfig {
             @Value("#{jobParameters['matchWindowToEpochMs']}") Long windowToEpochMs,
             @Value("#{jobParameters['bucketCount']}") Long bucketCount,
             @Value("#{jobParameters['attempt']}") Long attempt) {
-        return ReconJobContext.of(runId, scenarioCode, accountingPeriod, sequenceNo,
+        return ReconJobContext.of(runId, tenantId, scenarioCode, accountingPeriod, sequenceNo,
                 cutoffEpochMs, windowFromEpochMs, windowToEpochMs, bucketCount, attempt);
     }
 }

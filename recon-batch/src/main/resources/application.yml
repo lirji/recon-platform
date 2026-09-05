@@ -58,6 +58,8 @@ recon:
       kafka-enabled: ${RECON_BENEFIT_ODS_KAFKA_ENABLED:false}
       topic: ${RECON_BENEFIT_ODS_TOPIC:benefit.fulfillment-event.v1}
       group-id: ${RECON_BENEFIT_ODS_GROUP:recon-benefit-ods-v1}
+      expected-topic: ${RECON_MARKETING_EXPECTED_ODS_TOPIC:marketing.award-expected.v1}
+      expected-group-id: ${RECON_MARKETING_EXPECTED_ODS_GROUP:recon-marketing-award-expected-ods-v1}
   record-cursor:
     fetch-size: 1000
   # M6 数据源选择: 默认 DB 保持向后兼容；切换 csv-file 时三条文件路径必填。
@@ -100,6 +102,8 @@ recon:
     bucket-count: ${RECON_LAUNCH_BUCKET_COUNT:64}          # 默认分桶数 (A8: N=64)
     scenario-code: ${RECON_LAUNCH_SCENARIO:MARKETING_3WAY} # MVP 单场景映射；拒绝错场景套用错误 Job
     default-job: ${RECON_LAUNCH_DEFAULT_JOB:marketingThreeWayJob}
+    generic-job: ${RECON_LAUNCH_GENERIC_JOB:genericReconJob}
+    entitlement-job: ${RECON_LAUNCH_ENTITLEMENT_JOB:entitlementFulfillmentJob}
   # M5 告警中继: outbox 投递上限 (超过则视为死信不再补投).
   alert:
     max-attempt: ${RECON_ALERT_MAX_ATTEMPT:5}
@@ -127,6 +131,7 @@ recon:
   scheduler:
     enabled: ${RECON_SCHEDULER_ENABLED:false}
     scenario-code: ${RECON_SCHEDULER_SCENARIO:MARKETING_3WAY}
+    tenant-id: ${RECON_SCHEDULER_TENANT_ID:legacy}
     launch-cron: ${RECON_SCHEDULER_LAUNCH_CRON:-}           # "-" = 禁用定时发起; 配 cron 表达式开启
     alert-relay-delay-ms: ${RECON_SCHEDULER_ALERT_RELAY_DELAY_MS:60000}
     alert-relay-initial-ms: ${RECON_SCHEDULER_ALERT_RELAY_INITIAL_MS:60000}

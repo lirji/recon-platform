@@ -32,6 +32,19 @@ class DiscrepancyClassifierTest {
     }
 
     @Test
+    void tenantNativeRunsNamespaceFingerprintButLegacyStaysCompatible() {
+        EvaluationContext tenantA = context("tenant-a");
+        EvaluationContext tenantB = context("tenant-b");
+        EvaluationContext legacy = context("legacy");
+        EvaluationContext oldWithoutTenant = context(null);
+
+        String a = mismatchFingerprint(tenantA);
+        String b = mismatchFingerprint(tenantB);
+        assertThat(a).isNotEqualTo(b);
+        assertThat(mismatchFingerprint(legacy)).isEqualTo(mismatchFingerprint(oldWithoutTenant));
+    }
+
+    @Test
     void missing_when_left_only_and_not_spine() {
         ReconFixtures.Result r = ReconFixtures.run(plain,
                 List.of(ReconFixtures.left("K1", 100)),
@@ -196,5 +209,17 @@ class DiscrepancyClassifierTest {
                 List.of(ReconFixtures.base(Side.LEFT, SourceRole.MARKETING, "K1", "USD", 100, EntryType.ISSUE).build()),
                 List.of());
         assertThat(r.only().type()).isEqualTo(DiscrepancyType.BRIDGE_BROKEN);
+    }
+
+    private static EvaluationContext context(String tenantId) {
+        return EvaluationContext.builder()
+                .runId("run-1").tenantId(tenantId).scenarioCode("scn").accountingPeriod("2026-08-17")
+                .segmentId("SEG1").leftRole(SourceRole.MARKETING).rightRole(SourceRole.ACCOUNTING)
+                .build();
+    }
+
+    private static String mismatchFingerprint(EvaluationContext context) {
+        return ReconFixtures.run(context, List.of(ReconFixtures.left("K1", 100)),
+                List.of(ReconFixtures.right("K1", 90))).only().fingerprint();
     }
 }

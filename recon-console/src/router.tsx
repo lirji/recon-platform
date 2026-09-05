@@ -13,6 +13,9 @@ const ScenariosPage = lazy(() => import('./pages/ScenariosPage').then((m) => ({ 
 const ReversalApprovalsPage = lazy(() =>
   import('./pages/ReversalApprovalsPage').then((m) => ({ default: m.ReversalApprovalsPage })),
 )
+const BenefitRemediationsPage = lazy(() =>
+  import('./pages/BenefitRemediationsPage').then((m) => ({ default: m.BenefitRemediationsPage })),
+)
 const LoginPage = lazy(() => import('./pages/LoginPage').then((m) => ({ default: m.LoginPage })))
 const CallbackPage = lazy(() => import('./pages/CallbackPage').then((m) => ({ default: m.CallbackPage })))
 const ForbiddenPage = lazy(() => import('./pages/ForbiddenPage').then((m) => ({ default: m.ForbiddenPage })))
@@ -50,6 +53,7 @@ export const router = createBrowserRouter([
               { path: 'discrepancies', element: lazyRoute(<DiscrepanciesPage />) },
               { path: 'scenarios', element: lazyRoute(<ScenariosPage />) },
               { path: 'reversal-approvals', element: lazyRoute(<ReversalApprovalsPage />) },
+              { path: 'benefit-remediations', element: lazyRoute(<BenefitRemediationsPage />) },
             ],
           },
         ],

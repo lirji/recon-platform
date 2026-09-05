@@ -60,7 +60,7 @@ public class DiscrepancyController {
         }
         return launchService.launch(new ReconLaunchService.LaunchCommand(
                 req.scenarioCode(), req.accountingPeriod(), req.jobName(), req.bucketCount(),
-                null, null, null));
+                null, null, null, req.tenantId()));
     }
 
     /** 重跑既有 Run (同 runId, 新 attempt; 保留人工痕迹)。 */
@@ -121,7 +121,8 @@ public class DiscrepancyController {
     // ==================== DTO ====================
 
     /** 发起 Run 请求体。窗口/cutoff 由账期派生 (MVP 不暴露, 阶段二可加)。 */
-    public record LaunchRequest(String scenarioCode, String accountingPeriod, String jobName, Integer bucketCount) {
+    public record LaunchRequest(String scenarioCode, String accountingPeriod, String jobName, Integer bucketCount,
+                                String tenantId) {
     }
 
     /**

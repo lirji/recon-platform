@@ -67,10 +67,10 @@ export function DashboardPage() {
           <MetricCard label="进行中" value={formatCount(metrics.runningRuns)} hint="装载与匹配中的任务" icon={<ClockCircleOutlined />} tone="warning" />
         </Col>
         <Col xs={24} sm={12} xl={6}>
-          <MetricCard label="失败 / 守恒异常" value={formatCount(metrics.failedRuns + metrics.imbalancedRuns)} hint={`${metrics.failedRuns} 失败 · ${metrics.imbalancedRuns} 不平衡`} icon={<AlertOutlined />} tone="error" actionLabel="立即排查" onAction={() => navigate('/runs')} />
+          <MetricCard label="失败 / 守恒异常" value={formatCount(metrics.failedRuns + metrics.imbalancedRuns)} hint={`${metrics.failedRuns} 失败 · ${metrics.imbalancedRuns} 不平衡`} icon={<AlertOutlined />} tone="error" actionLabel="立即排查" onAction={() => navigate('/runs?status=FAILED')} />
         </Col>
         <Col xs={24} sm={12} xl={6}>
-          <MetricCard label="待处理差异" value={formatCount(metrics.openDiscrepancies)} hint={`${metrics.resolvedDiscrepancies} 已核销 · ${metrics.closedDiscrepancies} 已关闭`} icon={<CheckCircleOutlined />} tone="success" actionLabel="处理差异" onAction={() => navigate('/discrepancies')} />
+          <MetricCard label="待处理差异" value={formatCount(metrics.openDiscrepancies)} hint={`${metrics.resolvedDiscrepancies} 已核销 · ${metrics.closedDiscrepancies} 已关闭`} icon={<CheckCircleOutlined />} tone="success" actionLabel="处理差异" onAction={() => navigate('/discrepancies?status=OPEN')} />
         </Col>
       </Row>
 
@@ -81,7 +81,10 @@ export function DashboardPage() {
               <div className="chart-empty">尚无差异数据</div>
             ) : (
               <Suspense fallback={<div className="chart-empty">图表加载中…</div>}>
-                <DiscrepancyPieChart data={discrepancyTypes} />
+                <DiscrepancyPieChart
+                  data={discrepancyTypes}
+                  onSliceClick={(type) => navigate(`/discrepancies?type=${encodeURIComponent(type)}`)}
+                />
               </Suspense>
             )}
           </Card>

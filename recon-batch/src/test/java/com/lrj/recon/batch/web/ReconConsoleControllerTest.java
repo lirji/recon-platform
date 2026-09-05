@@ -104,6 +104,8 @@ class ReconConsoleControllerTest {
         seedRun("run-1", 1, "COMPLETED", BASE_TIME);
         String fingerprint = "D".repeat(64);
         seedDiscrepancy("disc-detail", "run-1", "AMOUNT_MISMATCH", fingerprint, "ORDER-42");
+        jdbc.update("UPDATE discrepancy SET left_raw_ref=?, right_raw_ref=? WHERE discrepancy_id=?",
+                "marketing-award-expected:REQ-42", "benefit-fulfillment:BO-42", "disc-detail");
         seedDiscrepancy("disc-other", "run-1", "MISSING", "M".repeat(64), "ORDER-OTHER");
         seedDisposition(fingerprint, "RESOLVED", 2);
         Timestamp now = Timestamp.from(BASE_TIME.plusSeconds(180));
@@ -140,7 +142,10 @@ class ReconConsoleControllerTest {
 
         mvc.perform(get("/recon/discrepancies/disc-detail"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.discrepancy.leftRawRef").value("left:ORDER-42"))
+                .andExpect(jsonPath("$.discrepancy.leftRawRef").value("marketing-award-expected:REQ-42"))
+                .andExpect(jsonPath("$.discrepancy.expectedSourceSystem").value("MARKETING"))
+                .andExpect(jsonPath("$.discrepancy.marketingSourceRequestId").value("REQ-42"))
+                .andExpect(jsonPath("$.discrepancy.benefitOrderNo").value("BO-42"))
                 .andExpect(jsonPath("$.actions[0].actionType").value("MANUAL_RESOLVE"))
                 .andExpect(jsonPath("$.reversals[0].suggestedAmountMinor").value("100"))
                 .andExpect(jsonPath("$.alerts[0].status").value("FAILED"))
@@ -157,7 +162,7 @@ class ReconConsoleControllerTest {
                 .andExpect(status().isBadRequest());
         mvc.perform(get("/recon/runs").param("status", "UNKNOWN"))
                 .andExpect(status().isBadRequest());
-        mvc.perform(get("/recon/discrepancies").param("type", "UNKNOWN"))
+        mvc.perform(get("/recon/discrepancies").param("type", "NO_SUCH_TYPE"))
                 .andExpect(status().isBadRequest());
         mvc.perform(get("/recon/discrepancies").param("currency", "US"))
                 .andExpect(status().isBadRequest());

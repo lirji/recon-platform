@@ -39,11 +39,20 @@ public interface ReconConsoleQueryRepository {
      */
     List<GroupRecordDetail> findGroupRecords(String runId, String segmentId, String groupKey, int limit);
 
+    /**
+     * 载入期拒绝行:标准化失败但不中断整流的源行({@code recon_record_reject})。
+     * 按创建时间倒序,分页({@code LIMIT/OFFSET});{@code segmentId}/{@code sourceRole} 可选过滤。
+     */
+    PageResult<RejectEntry> listRejects(RejectFilter filter);
+
     record RunFilter(String scenarioCode, String accountingPeriod, String status, int page, int size) {
     }
 
     record DiscrepancyFilter(String runId, String type, String status, String segmentId, String currency,
                              String query, int page, int size) {
+    }
+
+    record RejectFilter(String runId, String segmentId, String sourceRole, int page, int size) {
     }
 
     record PageResult<T>(List<T> content, int page, int size, long totalElements, int totalPages) {
@@ -74,7 +83,7 @@ public interface ReconConsoleQueryRepository {
     record KeyCount(String key, long count) {
     }
 
-    record RunSummary(String runId, String scenarioCode, String accountingPeriod, int sequenceNo,
+    record RunSummary(String runId, String tenantId, String scenarioCode, String accountingPeriod, int sequenceNo,
                       String status, int bucketCount, Instant createdAt, Instant startedAt, Instant finishedAt,
                       long discrepancyCount, long openDiscrepancyCount, Boolean balanced) {
     }
@@ -146,6 +155,9 @@ public interface ReconConsoleQueryRepository {
                               String segmentId, String type, String bridgeBreakStage, String fingerprint,
                               String groupKey, String matchKey, String currency, String expectedAmountMinor,
                               String actualAmountMinor, String deltaAmountMinor, String leftRawRef, String rightRawRef,
+                              String measureKind, String expectedQuantity, String internalQuantity,
+                              String providerQuantity,
+                              String expectedSourceSystem, String marketingSourceRequestId, String benefitOrderNo,
                               String dispositionStatus, String operator, String note, Integer dispositionVersion,
                               Instant createdAt, Instant updatedAt) {
     }
@@ -167,5 +179,10 @@ public interface ReconConsoleQueryRepository {
     }
 
     record AlertEntry(String id, String runId, String status, int attempt, Instant createdAt, Instant sentAt) {
+    }
+
+    /** 载入期拒绝行(业务畸形 / 不可恢复语法错误的审计)。{@code rawPayload} 为原始行,可能很长。 */
+    record RejectEntry(String id, String runId, String segmentId, String sourceRole, String rawRef,
+                       String reason, String rawPayload, Instant createdAt) {
     }
 }

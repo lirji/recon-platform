@@ -7,8 +7,11 @@ import { DashboardPage } from './DashboardPage'
 vi.mock('../api/recon', () => ({
   getDashboard: vi.fn(),
   getRun: vi.fn(),
+  getRefineViolations: vi.fn(),
+  listScenarios: vi.fn(),
   rerunRun: vi.fn(),
   launchRun: vi.fn(),
+  listRunRejects: vi.fn(),
 }))
 
 vi.mock('../components/dashboard/DiscrepancyPieChart', () => ({

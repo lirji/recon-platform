@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertOutlined, AuditOutlined, DashboardOutlined, MenuFoldOutlined, MenuOutlined, MenuUnfoldOutlined, SettingOutlined, SolutionOutlined } from '@ant-design/icons'
+import { AlertOutlined, AuditOutlined, DashboardOutlined, GiftOutlined, MenuFoldOutlined, MenuOutlined, MenuUnfoldOutlined, SettingOutlined, SolutionOutlined } from '@ant-design/icons'
 import { Breadcrumb, Button, Drawer, Grid, Layout, Menu, Space } from 'antd'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { colors } from '../../theme/colors'
@@ -10,6 +10,7 @@ const navigation = [
   { key: '/runs', label: '运行管理', icon: <AuditOutlined /> },
   { key: '/discrepancies', label: '差异处理', icon: <AlertOutlined /> },
   { key: '/reversal-approvals', label: '冲正审批', icon: <SolutionOutlined /> },
+  { key: '/benefit-remediations', label: '权益补救', icon: <GiftOutlined /> },
   { key: '/scenarios', label: '场景管理', icon: <SettingOutlined /> },
 ]
 

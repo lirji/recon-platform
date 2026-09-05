@@ -9,6 +9,10 @@
 > 完整架构决策与字段级设计见 **[`docs/design/RECON_MVP_DESIGN.md`](docs/design/RECON_MVP_DESIGN.md)**（judge-panel 综合定稿，含领域模型、DDL、四接口签名、桥接两段匹配时序、ADR、口径决议 A0–A8）。
 > 企业权益中台的现金/非现金事实分流、ODS 幂等和审批后补发/冲正链路见 **[`docs/benefit-center-integration.md`](docs/benefit-center-integration.md)**。
 
+权益链路跨系统键统一为：`tenantId`、`campaignId + definitionVersion`、
+`benefitSkuId + skuVersion`、`sourceRequestId`（跨系统幂等键）、`clientItemId`（项级 join key）和
+`awardOrderNo`（权益订单）。权益对账 Run 必须显式带 `tenantId`，禁止依赖请求头覆盖或全租户源表扫描。
+
 ---
 
 ## 架构一句话
@@ -115,8 +119,8 @@ pnpm dev
 ### Docker 本地部署
 
 ```bash
-docker compose up -d --build --remove-orphans
-docker compose ps
+./compose.sh up -d --build --remove-orphans    # 自动加载 auth-platform 中央入口端口
+./compose.sh ps
 curl http://localhost:8088/healthz
 curl http://localhost:8088/recon/dashboard
 ```
@@ -130,8 +134,8 @@ curl http://localhost:8088/recon/dashboard
 **① Compose 叠加层（真库端到端本地部署，推荐先跑通）**——`compose.mysql.yml` 起 MySQL 8 并把后端指过去：
 
 ```bash
-docker compose -f compose.yml -f compose.mysql.yml up -d --build --remove-orphans
-docker compose -f compose.yml -f compose.mysql.yml ps      # 等 db + backend 均 healthy
+./compose.sh -f compose.yml -f compose.mysql.yml up -d --build --remove-orphans
+./compose.sh -f compose.yml -f compose.mysql.yml ps         # 等 db + backend 均 healthy
 ```
 
 后端启动时 Flyway 自动迁移 **V1 领域 schema + V2 方言 batch 元数据（MySQL 表式序列 `BATCH_*_SEQ`）+ V3 `match_key` collation（`utf8mb4_bin`）**。

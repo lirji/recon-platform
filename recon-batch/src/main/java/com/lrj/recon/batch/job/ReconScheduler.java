@@ -31,13 +31,16 @@ public class ReconScheduler {
     private final AlertRelayService alertRelayService;
     private final ReconLaunchService launchService;
     private final String scenarioCode;
+    private final String tenantId;
 
     public ReconScheduler(AlertRelayService alertRelayService,
                           ReconLaunchService launchService,
-                          @Value("${recon.scheduler.scenario-code:MARKETING_3WAY}") String scenarioCode) {
+                          @Value("${recon.scheduler.scenario-code:MARKETING_3WAY}") String scenarioCode,
+                          @Value("${recon.scheduler.tenant-id:legacy}") String tenantId) {
         this.alertRelayService = alertRelayService;
         this.launchService = launchService;
         this.scenarioCode = scenarioCode;
+        this.tenantId = tenantId;
     }
 
     /** 告警中继补投: 默认每 60s 一轮 (可配)。至少一次投递 + 幂等键去重。 */
@@ -55,7 +58,7 @@ public class ReconScheduler {
     public void launchDaily() {
         String period = LocalDate.now(ZoneOffset.UTC).toString();
         ReconLaunchService.LaunchResult result = launchService.launch(new ReconLaunchService.LaunchCommand(
-                scenarioCode, period, null, null, null, null, null));
+                scenarioCode, period, null, null, null, null, null, tenantId));
         log.info("[scheduler] launched run {} (seq {}) status={}",
                 result.runId(), result.sequenceNo(), result.status());
     }

@@ -1,14 +1,41 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../api/client'
-import { closeDiscrepancy, getDiscrepancy, resolveDiscrepancy, submitReversalApproval } from '../../api/recon'
+import {
+  closeDiscrepancy,
+  executeReversal,
+  getDiscrepancy,
+  resolveDiscrepancy,
+  submitReversalApproval,
+} from '../../api/recon'
 import type { ClearRequest, DiscrepancySummary, ReversalEntry } from '../../api/types'
 import { useAuth } from '../../auth/AuthContext'
-import { App, Alert, Button, Collapse, Descriptions, Divider, Drawer, Empty, Form, Grid, Input, Modal, Space, Table, Timeline, Typography } from 'antd'
-import { CheckCircleOutlined, StopOutlined } from '@ant-design/icons'
+import {
+  App,
+  Alert,
+  Button,
+  Collapse,
+  Descriptions,
+  Divider,
+  Drawer,
+  Empty,
+  Form,
+  Grid,
+  Input,
+  Modal,
+  Popconfirm,
+  Space,
+  Table,
+  Timeline,
+  Typography,
+} from 'antd'
+import { CheckCircleOutlined, GiftOutlined, StopOutlined } from '@ant-design/icons'
+import { ProposeRemediationModal } from '../remediations/ProposeRemediationModal'
+import { AUTH_CONFIG } from '../../auth/config'
 import { ErrorState, PageSkeleton } from '../common/AsyncState'
-import { DiscrepancyTypeTag, DispositionStatusTag } from '../common/StatusTag'
+import { AlertStatusTag, DiscrepancyTypeTag, DispositionStatusTag, ReversalStatusTag } from '../common/StatusTag'
 import { errorMessage, formatDateTime, formatMinor } from '../../utils/format'
+import { GroupRecordsPanel } from './GroupRecordsPanel'
 
 type Action = 'resolve' | 'close'
 
@@ -27,9 +54,46 @@ function allowedActions(discrepancy: DiscrepancySummary): Action[] {
   return ['resolve', 'close']
 }
 
+function reversalActionLabel(status: string): string | null {
+  if (status === 'SUGGESTED') return '提交审批'
+  if (status === 'CONFIRMED') return '执行冲正'
+  if (status === 'EXECUTION_FAILED') return '重试执行'
+  return null
+}
+
+function expectedSourceFields(discrepancy: DiscrepancySummary) {
+  const expectedSourceSystem = discrepancy.expectedSourceSystem?.trim()
+  const marketingSourceRequestId = discrepancy.marketingSourceRequestId?.trim()
+  const benefitOrderNo = discrepancy.benefitOrderNo?.trim()
+  if (!expectedSourceSystem && !marketingSourceRequestId && !benefitOrderNo) return null
+  return { expectedSourceSystem, marketingSourceRequestId, benefitOrderNo }
+}
+
+function ExpectedSourceBlock({ discrepancy, columns }: { discrepancy: DiscrepancySummary; columns: number }) {
+  const fields = expectedSourceFields(discrepancy)
+  if (!fields) return null
+  return (
+    <>
+      <Divider orientation="left">应发源</Divider>
+      <Descriptions bordered size="small" column={columns}>
+        {fields.expectedSourceSystem && (
+          <Descriptions.Item label="来源系统"><span className="mono">{fields.expectedSourceSystem}</span></Descriptions.Item>
+        )}
+        {fields.marketingSourceRequestId && (
+          <Descriptions.Item label="营销请求号"><span className="mono">{fields.marketingSourceRequestId}</span></Descriptions.Item>
+        )}
+        {fields.benefitOrderNo && (
+          <Descriptions.Item label="权益订单号"><span className="mono">{fields.benefitOrderNo}</span></Descriptions.Item>
+        )}
+      </Descriptions>
+    </>
+  )
+}
+
 export function DiscrepancyDetailDrawer({ discrepancyId, onClose }: Props) {
   const screens = Grid.useBreakpoint()
   const [action, setAction] = useState<Action | null>(null)
+  const [proposeOpen, setProposeOpen] = useState(false)
   const [form] = Form.useForm<ActionValues>()
   const queryClient = useQueryClient()
   const { message } = App.useApp()
@@ -40,10 +104,20 @@ export function DiscrepancyDetailDrawer({ discrepancyId, onClose }: Props) {
     enabled: Boolean(discrepancyId),
   })
 
+  const invalidateAfterWrite = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+      queryClient.invalidateQueries({ queryKey: ['runs'] }),
+      queryClient.invalidateQueries({ queryKey: ['discrepancies'] }),
+      queryClient.invalidateQueries({ queryKey: ['discrepancy-detail', discrepancyId] }),
+      queryClient.invalidateQueries({ queryKey: ['reversal-approvals'] }),
+      queryClient.invalidateQueries({ queryKey: ['group-records'] }),
+    ])
+  }
+
   const mutation = useMutation({
     mutationFn: async (values: ActionValues) => {
       const request: ClearRequest = {
-        // operator: secure profile 由后端从 JWT 取(忽略此字段);dev 回退用会话身份名。
         operator: auth.user?.name,
         note: values.note?.trim() || undefined,
         expectedVersion: detail.data?.discrepancy.dispositionVersion ?? undefined,
@@ -55,12 +129,7 @@ export function DiscrepancyDetailDrawer({ discrepancyId, onClose }: Props) {
       message.success(result.status === 'RESOLVED' ? '差异已核销' : '差异已关闭')
       setAction(null)
       form.resetFields()
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
-        queryClient.invalidateQueries({ queryKey: ['runs'] }),
-        queryClient.invalidateQueries({ queryKey: ['discrepancies'] }),
-        queryClient.invalidateQueries({ queryKey: ['discrepancy-detail', discrepancyId] }),
-      ])
+      await invalidateAfterWrite()
     },
     onError: async (error) => {
       if (error instanceof ApiError && error.status === 409) {
@@ -72,12 +141,11 @@ export function DiscrepancyDetailDrawer({ discrepancyId, onClose }: Props) {
     },
   })
 
-  // B5: 把 SUGGESTED 冲正建议提交进审批流(唯一持 reversalId=ReversalEntry.id 的入口)。
   const submitApproval = useMutation({
     mutationFn: (reversalId: string) => submitReversalApproval(reversalId),
     onSuccess: async () => {
       message.success('已提交审批,请到「冲正审批」处理')
-      await queryClient.invalidateQueries({ queryKey: ['discrepancy-detail', discrepancyId] })
+      await invalidateAfterWrite()
     },
     onError: (error) => {
       if (error instanceof ApiError && error.code === 'illegal_transition') {
@@ -88,15 +156,52 @@ export function DiscrepancyDetailDrawer({ discrepancyId, onClose }: Props) {
     },
   })
 
+  const execute = useMutation({
+    mutationFn: (reversalId: string) => executeReversal(reversalId, auth.user?.name),
+    onSuccess: async (result) => {
+      message.success(result.reference?.includes('idempotent') ? '该冲正此前已执行，未重复动钱' : '冲正已执行')
+      await invalidateAfterWrite()
+    },
+    onError: async (error) => {
+      message.error(errorMessage(error))
+      await queryClient.invalidateQueries({ queryKey: ['discrepancy-detail', discrepancyId] })
+    },
+  })
+
   const openAction = (next: Action) => {
     form.setFieldsValue({ note: '' })
     setAction(next)
   }
 
   const discrepancy = detail.data?.discrepancy
-  // recon.dispose 才可核销/关闭(观察员只读);后端授权仍是安全边界。
   const canDispose = auth.can('recon.dispose')
+  const canLaunch = auth.can('recon.launch')
   const actions = discrepancy && canDispose ? allowedActions(discrepancy) : []
+
+  const reversalOperation = (_: unknown, row: ReversalEntry) => {
+    const label = reversalActionLabel(row.status)
+    if (!label) return null
+    if (row.status === 'SUGGESTED') {
+      if (!canDispose) return null
+      return (
+        <Button type="link" loading={submitApproval.isPending} onClick={() => submitApproval.mutate(row.id)}>
+          {label}
+        </Button>
+      )
+    }
+    if (!canLaunch) return null
+    return (
+      <Popconfirm
+        title={row.status === 'EXECUTION_FAILED' ? '确认重试执行？' : '确认执行冲正？'}
+        description="审批与执行是两个独立控制点。默认执行器只记日志，生产需替换真实清结算适配器。"
+        okText="确认执行"
+        cancelText="取消"
+        onConfirm={() => execute.mutate(row.id)}
+      >
+        <Button type="link" loading={execute.isPending}>{label}</Button>
+      </Popconfirm>
+    )
+  }
 
   return (
     <>
@@ -108,6 +213,9 @@ export function DiscrepancyDetailDrawer({ discrepancyId, onClose }: Props) {
         extra={
           discrepancy && (
             <Space>
+              {canDispose && (
+                <Button icon={<GiftOutlined />} onClick={() => setProposeOpen(true)}>提出补救</Button>
+              )}
               {actions.includes('resolve') && <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => openAction('resolve')}>核销</Button>}
               {actions.includes('close') && <Button icon={<StopOutlined />} onClick={() => openAction('close')}>关闭</Button>}
             </Space>
@@ -133,6 +241,8 @@ export function DiscrepancyDetailDrawer({ discrepancyId, onClose }: Props) {
             <Descriptions bordered size="small" column={screens.md ? 2 : 1}>
               <Descriptions.Item label="Run ID"><span className="mono">{detail.data.discrepancy.runId}</span></Descriptions.Item>
               <Descriptions.Item label="分段">{detail.data.discrepancy.segmentId}</Descriptions.Item>
+              <Descriptions.Item label="桥断阶段">{detail.data.discrepancy.bridgeBreakStage || '—'}</Descriptions.Item>
+              <Descriptions.Item label="场景">{detail.data.discrepancy.scenarioCode}</Descriptions.Item>
               <Descriptions.Item label="应对金额">{formatMinor(detail.data.discrepancy.expectedAmountMinor, detail.data.discrepancy.currency)}</Descriptions.Item>
               <Descriptions.Item label="实际金额">{formatMinor(detail.data.discrepancy.actualAmountMinor, detail.data.discrepancy.currency)}</Descriptions.Item>
               <Descriptions.Item label="匹配键"><span className="mono">{detail.data.discrepancy.matchKey || '—'}</span></Descriptions.Item>
@@ -144,6 +254,8 @@ export function DiscrepancyDetailDrawer({ discrepancyId, onClose }: Props) {
               <Descriptions.Item label="处置备注" span={screens.md ? 2 : 1}>{detail.data.discrepancy.note || '—'}</Descriptions.Item>
               <Descriptions.Item label="Fingerprint" span={screens.md ? 2 : 1}><span className="mono">{detail.data.discrepancy.fingerprint}</span></Descriptions.Item>
             </Descriptions>
+
+            <ExpectedSourceBlock discrepancy={detail.data.discrepancy} columns={screens.md ? 2 : 1} />
 
             <Divider orientation="left">处理审计</Divider>
             {detail.data.actions.length === 0 ? (
@@ -166,6 +278,17 @@ export function DiscrepancyDetailDrawer({ discrepancyId, onClose }: Props) {
             <Collapse
               items={[
                 {
+                  key: 'records',
+                  label: '组内明细',
+                  children: (
+                    <GroupRecordsPanel
+                      runId={detail.data.discrepancy.runId}
+                      segmentId={detail.data.discrepancy.segmentId}
+                      groupKey={detail.data.discrepancy.groupKey}
+                    />
+                  ),
+                },
+                {
                   key: 'reversals',
                   label: `冲正建议（${detail.data.reversals.length}）`,
                   children: detail.data.reversals.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无冲正建议" /> : (
@@ -175,29 +298,13 @@ export function DiscrepancyDetailDrawer({ discrepancyId, onClose }: Props) {
                       pagination={false}
                       dataSource={detail.data.reversals}
                       columns={[
-                        { title: '状态', dataIndex: 'status' },
+                        { title: '状态', dataIndex: 'status', render: (status: string) => <ReversalStatusTag status={status} /> },
                         { title: '建议金额', render: (_, row) => formatMinor(row.suggestedAmountMinor, row.currency) },
                         { title: 'Run ID', dataIndex: 'runId', render: (value: string) => <span className="mono">{value}</span> },
                         { title: '生成时间', dataIndex: 'createdAt', render: formatDateTime },
-                        ...(canDispose
-                          ? [
-                              {
-                                title: '操作',
-                                render: (_: unknown, row: ReversalEntry) =>
-                                  row.status === 'SUGGESTED' ? (
-                                    <Button
-                                      type="link"
-                                      loading={submitApproval.isPending}
-                                      onClick={() => submitApproval.mutate(row.id)}
-                                    >
-                                      提交审批
-                                    </Button>
-                                  ) : null,
-                              },
-                            ]
-                          : []),
+                        { title: '操作', render: reversalOperation },
                       ]}
-                      scroll={{ x: 680 }}
+                      scroll={{ x: 760 }}
                     />
                   ),
                 },
@@ -211,7 +318,7 @@ export function DiscrepancyDetailDrawer({ discrepancyId, onClose }: Props) {
                       pagination={false}
                       dataSource={detail.data.alerts}
                       columns={[
-                        { title: '状态', dataIndex: 'status' },
+                        { title: '状态', dataIndex: 'status', render: (status: string) => <AlertStatusTag status={status} /> },
                         { title: '尝试次数', dataIndex: 'attempt' },
                         { title: '创建时间', dataIndex: 'createdAt', render: formatDateTime },
                         { title: '发送时间', dataIndex: 'sentAt', render: formatDateTime },
@@ -247,6 +354,21 @@ export function DiscrepancyDetailDrawer({ discrepancyId, onClose }: Props) {
           </Form.Item>
         </Form>
       </Modal>
+
+      <ProposeRemediationModal
+        open={proposeOpen}
+        onClose={() => setProposeOpen(false)}
+        prefill={
+          discrepancy
+            ? {
+                tenantId: AUTH_CONFIG.organization,
+                scenarioCode: discrepancy.scenarioCode,
+                discrepancyRef: discrepancy.discrepancyId,
+                awardItemNo: discrepancy.groupKey || discrepancy.matchKey || '',
+              }
+            : null
+        }
+      />
     </>
   )
 }

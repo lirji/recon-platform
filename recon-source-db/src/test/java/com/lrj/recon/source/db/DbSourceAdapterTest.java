@@ -17,6 +17,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.time.Instant;
+import java.sql.Timestamp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -45,7 +47,10 @@ class DbSourceAdapterTest {
                   issue_id VARCHAR(64),
                   amount_minor BIGINT,
                   ccy CHAR(3),
-                  entry_type VARCHAR(16)
+                  entry_type VARCHAR(16),
+                  tenant_id VARCHAR(64),
+                  occurred_at TIMESTAMP,
+                  raw_ref VARCHAR(256)
                 )
                 """);
         adapter = new DbSourceAdapter(jdbc);
@@ -145,5 +150,29 @@ class DbSourceAdapterTest {
         }
         assertThat(out).extracting(r -> r.matchKey().value()).containsExactly("I-1", "I-4");
         assertThat(rejects).hasSize(2);
+    }
+
+    @Test
+    void tenantAndWindowPredicatesAreAppliedBeforeKeysetPaging() {
+        Timestamp inside = Timestamp.from(Instant.parse("2026-09-05T12:00:00Z"));
+        Timestamp outside = Timestamp.from(Instant.parse("2026-09-07T12:00:00Z"));
+        jdbc.update("INSERT INTO mkt_issue VALUES (1,'I-1',100,'USD','ISSUE','tenant-a',?,'source:A')", inside);
+        jdbc.update("INSERT INTO mkt_issue VALUES (2,'I-2',200,'USD','ISSUE','tenant-b',?,'source:B')", inside);
+        jdbc.update("INSERT INTO mkt_issue VALUES (3,'I-3',300,'USD','ISSUE','tenant-a',?,'source:C')", outside);
+
+        Map<String, String> params = new HashMap<>(context(2).descriptor().params());
+        params.put(DbSourceConfig.P_TENANT_COLUMN, "tenant_id");
+        params.put(DbSourceConfig.P_WINDOW_TIME_COLUMN, "occurred_at");
+        params.put(DbSourceConfig.P_RAW_REF_COLUMN, "raw_ref");
+        SourceReadContext scoped = new SourceReadContext("run-tenant", "tenant-a", "SEG", Side.LEFT,
+                SourceRole.MARKETING, 8, Instant.parse("2026-09-05T00:00:00Z"),
+                Instant.parse("2026-09-05T23:59:59Z"), new SourceDescriptor("db", params));
+
+        List<ReconRecord> records = new ArrayList<>();
+        try (RecordCursor cursor = adapter.open(scoped)) {
+            ReconRecord record;
+            while ((record = cursor.next()) != null) records.add(record);
+        }
+        assertThat(records).extracting(ReconRecord::rawRef).containsExactly("source:A");
     }
 }

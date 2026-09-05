@@ -9,7 +9,13 @@ import { discrepancyTypeLabels } from '../common/StatusTag'
 
 echarts.use([PieChart, TooltipComponent, LegendComponent, CanvasRenderer])
 
-export function DiscrepancyPieChart({ data }: { data: KeyCount[] }) {
+export function DiscrepancyPieChart({
+  data,
+  onSliceClick,
+}: {
+  data: KeyCount[]
+  onSliceClick?: (type: string) => void
+}) {
   const option = {
     tooltip: { trigger: 'item', formatter: '{b}<br/>{c} 条（{d}%）' },
     legend: { type: 'scroll', bottom: 0, textStyle: { color: colors.textSecondary } },
@@ -22,10 +28,27 @@ export function DiscrepancyPieChart({ data }: { data: KeyCount[] }) {
         center: ['50%', '43%'],
         avoidLabelOverlap: true,
         label: { show: false },
-        data: data.map((item) => ({ name: discrepancyTypeLabels[item.key] || item.key, value: item.count })),
+        data: data.map((item) => ({
+          name: discrepancyTypeLabels[item.key] || item.key,
+          value: item.count,
+          typeKey: item.key,
+        })),
       },
     ],
   }
 
-  return <ReactEChartsCore echarts={echarts} option={option} style={{ height: 320 }} aria-label="差异类型构成图" />
+  return (
+    <ReactEChartsCore
+      echarts={echarts}
+      option={option}
+      style={{ height: 320 }}
+      aria-label="差异类型构成图"
+      onEvents={{
+        click: (params: { data?: { typeKey?: string } }) => {
+          const typeKey = params.data?.typeKey
+          if (typeKey) onSliceClick?.(typeKey)
+        },
+      }}
+    />
+  )
 }

@@ -1,6 +1,8 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useMemo } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { App, Form, Input, InputNumber, Modal, Select } from 'antd'
-import { launchRun } from '../../api/recon'
+import { launchRun, listScenarios } from '../../api/recon'
+import { BUILTIN_SCENARIO_CODE, scenarioLabel } from '../../constants/scenario'
 import { errorMessage } from '../../utils/format'
 
 interface LaunchValues {
@@ -27,6 +29,30 @@ export function LaunchRunModal({ open, onClose, onLaunched }: Props) {
   const [form] = Form.useForm<LaunchValues>()
   const queryClient = useQueryClient()
   const { message } = App.useApp()
+  const scenarios = useQuery({
+    queryKey: ['scenarios'],
+    queryFn: listScenarios,
+    enabled: open,
+  })
+
+  const options = useMemo(() => {
+    const enabled = (scenarios.data || []).filter((item) => item.enabled)
+    const next = enabled.map((item) => ({ value: item.code, label: scenarioLabel(item.code) }))
+    // 内置场景走硬编码 job:管理台停用也不挡住发起,始终出现在选项里并标注。
+    if (!next.some((item) => item.value === BUILTIN_SCENARIO_CODE)) {
+      next.unshift({ value: BUILTIN_SCENARIO_CODE, label: `${BUILTIN_SCENARIO_CODE}（内置，停用仍可发起）` })
+    }
+    return next
+  }, [scenarios.data])
+
+  useEffect(() => {
+    if (!open) return
+    const current = form.getFieldValue('scenarioCode') as string | undefined
+    if (!current || !options.some((item) => item.value === current)) {
+      form.setFieldValue('scenarioCode', options[0]?.value || BUILTIN_SCENARIO_CODE)
+    }
+  }, [open, options, form])
+
   const mutation = useMutation({
     mutationFn: launchRun,
     onSuccess: async (result) => {
@@ -57,7 +83,7 @@ export function LaunchRunModal({ open, onClose, onLaunched }: Props) {
         form={form}
         layout="vertical"
         initialValues={{
-          scenarioCode: 'MARKETING_3WAY',
+          scenarioCode: BUILTIN_SCENARIO_CODE,
           accountingPeriod: todayInLocalTimezone(),
           bucketCount: 64,
         }}
@@ -65,7 +91,13 @@ export function LaunchRunModal({ open, onClose, onLaunched }: Props) {
         requiredMark="optional"
       >
         <Form.Item name="scenarioCode" label="对账场景" rules={[{ required: true }]}>
-          <Select options={[{ value: 'MARKETING_3WAY', label: '营销三方对账' }]} />
+          <Select
+            showSearch
+            optionFilterProp="label"
+            loading={scenarios.isPending}
+            options={options}
+            placeholder="选择已启用场景"
+          />
         </Form.Item>
         <Form.Item
           name="accountingPeriod"

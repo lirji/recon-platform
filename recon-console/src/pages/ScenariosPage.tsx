@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { EditOutlined, PlusOutlined } from '@ant-design/icons'
-import { Button, Card, Grid, Space, Table } from 'antd'
+import { Button, Card, Grid, Space, Table, Tag } from 'antd'
 import { listScenarios } from '../api/recon'
 import type { ScenarioSummary } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
@@ -9,6 +9,7 @@ import { EmptyState, ErrorState } from '../components/common/AsyncState'
 import { PageHeader } from '../components/common/PageHeader'
 import { ScenarioEnabledTag } from '../components/scenarios/ScenarioEnabledTag'
 import { ScenarioEditorDrawer, type EditingScenario } from '../components/scenarios/ScenarioEditorDrawer'
+import { isBuiltinScenario } from '../constants/scenario'
 import { errorMessage } from '../utils/format'
 
 export function ScenariosPage() {
@@ -28,7 +29,11 @@ export function ScenariosPage() {
       width: 260,
       render: (code: string) => (
         <button className="cell-link" onClick={() => openEdit(code)}>
-          <strong className="mono">{code}</strong>
+          <span>
+            <strong className="mono">{code}</strong>
+            {isBuiltinScenario(code) && <Tag style={{ marginLeft: 8 }}>内置</Tag>}
+          </span>
+          {isBuiltinScenario(code) && <small>停用不影响硬编码发起</small>}
         </button>
       ),
     },
@@ -88,7 +93,10 @@ export function ScenariosPage() {
               <button className="mobile-data-card" key={item.code} onClick={() => openEdit(item.code)}>
                 <span className="mobile-card-heading">
                   <strong className="mono">{item.code}</strong>
-                  <ScenarioEnabledTag enabled={item.enabled} />
+                  <Space size={4}>
+                    {isBuiltinScenario(item.code) && <Tag>内置</Tag>}
+                    <ScenarioEnabledTag enabled={item.enabled} />
+                  </Space>
                 </span>
                 <span className="mobile-card-stats">
                   <span>{item.segmentCount} 段</span>

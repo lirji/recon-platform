@@ -17,6 +17,15 @@ import type {
   ScenarioView,
   ThreeWayReport,
   UserSession,
+  RefineViolationReport,
+  GroupRecordReport,
+  ReversalExecutionResult,
+  RejectEntry,
+  RejectFilters,
+  RemediationView,
+  RemediationFilters,
+  ProposeRemediationRequest,
+  RemediationDecision,
 } from './types'
 
 export async function getMe(): Promise<UserSession> {
@@ -37,6 +46,24 @@ export async function getRun(runId: string): Promise<RunDetail> {
 
 export async function getThreeWayReport(runId: string): Promise<ThreeWayReport> {
   return (await api.get<ThreeWayReport>(`/recon/runs/${encodeURIComponent(runId)}/three-way`)).data
+}
+
+/** A5/KI-6:同一 match_key 落多个 group_key 的脏跨表诊断。 */
+export async function getRefineViolations(runId: string): Promise<RefineViolationReport> {
+  return (await api.get<RefineViolationReport>(`/recon/runs/${encodeURIComponent(runId)}/refine-violations`)).data
+}
+
+/** B7:组(段 + group_key)底层 staged 记录明细。 */
+export async function getGroupRecords(
+  runId: string,
+  segmentId: string,
+  groupKey: string,
+): Promise<GroupRecordReport> {
+  return (
+    await api.get<GroupRecordReport>(`/recon/runs/${encodeURIComponent(runId)}/records`, {
+      params: { segmentId, groupKey },
+    })
+  ).data
 }
 
 // B4 场景管理:list 返回裸数组(无分页)。
@@ -126,4 +153,57 @@ export async function decideReversalApproval(
   await api.post<void>(`/recon/reversal-approvals/${encodeURIComponent(taskId)}/decide`, null, {
     params: { approved, operator, note },
   })
+}
+
+/** B3:对 CONFIRMED(或 EXECUTION_FAILED 重试)冲正执行资金动作。需 recon.launch。 */
+export async function executeReversal(
+  reversalId: string,
+  operator?: string,
+): Promise<ReversalExecutionResult> {
+  return (
+    await api.post<ReversalExecutionResult>(
+      `/recon/reversal-executions/${encodeURIComponent(reversalId)}/execute`,
+      null,
+      { params: { operator } },
+    )
+  ).data
+}
+
+/** 载入期拒绝行分页。 */
+export async function listRunRejects(runId: string, filters: RejectFilters = {}): Promise<PageResult<RejectEntry>> {
+  return (
+    await api.get<PageResult<RejectEntry>>(`/recon/runs/${encodeURIComponent(runId)}/rejects`, { params: filters })
+  ).data
+}
+
+export async function listRemediations(filters: RemediationFilters): Promise<PageResult<RemediationView>> {
+  return (await api.get<PageResult<RemediationView>>('/recon/benefit-remediations', { params: filters })).data
+}
+
+export async function proposeRemediation(request: ProposeRemediationRequest): Promise<RemediationView> {
+  return (await api.post<RemediationView>('/recon/benefit-remediations', request)).data
+}
+
+export async function approveRemediation(
+  suggestionId: string,
+  decision: RemediationDecision,
+): Promise<RemediationView> {
+  return (
+    await api.post<RemediationView>(
+      `/recon/benefit-remediations/${encodeURIComponent(suggestionId)}/approve`,
+      decision,
+    )
+  ).data
+}
+
+export async function rejectRemediation(
+  suggestionId: string,
+  decision: RemediationDecision,
+): Promise<RemediationView> {
+  return (
+    await api.post<RemediationView>(
+      `/recon/benefit-remediations/${encodeURIComponent(suggestionId)}/reject`,
+      decision,
+    )
+  ).data
 }

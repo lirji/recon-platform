@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircleOutlined, StopOutlined } from '@ant-design/icons'
 import { App, Alert, Button, Card, Form, Grid, Input, Modal, Space, Table, Typography } from 'antd'
+import { Link } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { decideReversalApproval, listReversalApprovals } from '../api/recon'
 import type { PendingApprovalView } from '../api/types'
@@ -94,6 +95,30 @@ export function ReversalApprovalsPage() {
     },
     { title: '建议金额', width: 160, render: (_: unknown, row: PendingApprovalView) => renderAmount(row) },
     {
+      title: '业务键',
+      dataIndex: 'groupKey',
+      width: 160,
+      render: (value: string | null, row: PendingApprovalView) =>
+        value ? (
+          <Link to={`/discrepancies?q=${encodeURIComponent(value)}${row.runId ? `&runId=${encodeURIComponent(row.runId)}` : ''}`}>
+            <span className="mono">{value}</span>
+          </Link>
+        ) : (
+          '—'
+        ),
+    },
+    {
+      title: 'Run',
+      dataIndex: 'runId',
+      width: 220,
+      render: (value: string | null) =>
+        value ? (
+          <Link to={`/discrepancies?runId=${encodeURIComponent(value)}`} className="mono">{value}</Link>
+        ) : (
+          '—'
+        ),
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       width: 110,
@@ -135,7 +160,7 @@ export function ReversalApprovalsPage() {
             dataSource={rows}
             loading={approvals.isPending || approvals.isFetching}
             pagination={false}
-            scroll={{ x: 900 }}
+            scroll={{ x: 1180 }}
             locale={{ emptyText: <EmptyState /> }}
           />
         )}
@@ -150,6 +175,7 @@ export function ReversalApprovalsPage() {
                 </span>
                 <span className="mobile-card-stats">
                   <span className="mono">{row.reversalId || '—'}</span>
+                  <span className="mono">{row.groupKey || '—'}</span>
                   <span>{formatDateTime(row.createdAt)}</span>
                 </span>
                 <div className="mobile-card-actions">{actionButtons(row)}</div>

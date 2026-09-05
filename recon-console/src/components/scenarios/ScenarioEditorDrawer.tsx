@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { App, Alert, Button, Drawer, Grid, Input, Modal, Space, Switch, Typography } from 'antd'
+import { App, Alert, Button, Collapse, Drawer, Grid, Input, Modal, Space, Switch, Typography } from 'antd'
 import { getScenario, saveScenario } from '../../api/recon'
 import { useAuth } from '../../auth/AuthContext'
+import { isBuiltinScenario } from '../../constants/scenario'
 import { ErrorState, PageSkeleton } from '../common/AsyncState'
 import { errorMessage } from '../../utils/format'
+import { ScenarioDefinitionForm } from './ScenarioDefinitionForm'
+import { parseScenarioForm, serializeScenarioForm, type ScenarioFormValue } from './scenarioJson'
 
 export interface EditingScenario {
   mode: 'new' | 'edit'
@@ -65,9 +68,11 @@ export function ScenarioEditorDrawer({ editing, existingCodes, onClose }: Props)
   })
 
   const [jsonText, setJsonText] = useState('')
+  const [formValue, setFormValue] = useState<ScenarioFormValue | null>(null)
   const [enabled, setEnabled] = useState(true)
   const [parseError, setParseError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const jsonDirtyRef = useRef(false)
 
   // 播种:仅当 (mode:code) 变化才 seed,ref-guard 防后台 refetch 覆盖用户编辑、防切换场景残留。
   const seededKeyRef = useRef<string | null>(null)
@@ -80,16 +85,21 @@ export function ScenarioEditorDrawer({ editing, existingCodes, onClose }: Props)
     if (editing.mode === 'new') {
       if (seededKeyRef.current !== seedKey) {
         setJsonText(TEMPLATE)
+        setFormValue(parseScenarioForm(TEMPLATE))
         setEnabled(true)
         setParseError(null)
         setSaveError(null)
+        jsonDirtyRef.current = false
         seededKeyRef.current = seedKey
       }
     } else if (detail.data && seededKeyRef.current !== seedKey) {
-      setJsonText(JSON.stringify(detail.data.definition, null, 2))
+      const text = JSON.stringify(detail.data.definition, null, 2)
+      setJsonText(text)
+      setFormValue(parseScenarioForm(text))
       setEnabled(detail.data.enabled) // M1: enabled 从 detail 播种,避免不碰开关静默翻转
       setParseError(null)
       setSaveError(null)
+      jsonDirtyRef.current = false
       seededKeyRef.current = seedKey
     }
   }, [editing, seedKey, detail.data])
@@ -144,6 +154,27 @@ export function ScenarioEditorDrawer({ editing, existingCodes, onClose }: Props)
     mutation.mutate(pathCode)
   }
 
+  const applyForm = (next: ScenarioFormValue) => {
+    setFormValue(next)
+    jsonDirtyRef.current = false
+    setParseError(null)
+    try {
+      setJsonText(serializeScenarioForm(next))
+    } catch (e) {
+      setParseError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const applyJson = (text: string) => {
+    setJsonText(text)
+    jsonDirtyRef.current = true
+    const parsed = parseScenarioForm(text)
+    if (parsed) {
+      setFormValue(parsed)
+      setParseError(null)
+    }
+  }
+
   const title = editing?.mode === 'new' ? '新建场景' : `编辑场景 ${editing?.code ?? ''}`
 
   return (
@@ -161,6 +192,14 @@ export function ScenarioEditorDrawer({ editing, existingCodes, onClose }: Props)
       {(editing?.mode === 'new' || detail.data) && (
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
           {saveError && <Alert type="error" showIcon message="保存失败" description={saveError} />}
+          {isBuiltinScenario(editing?.code) && (
+            <Alert
+              type="warning"
+              showIcon
+              message="这是内置场景 MARKETING_3WAY"
+              description="停用只影响配置目录的理解，不会挡住运行管理里的硬编码发起路径。"
+            />
+          )}
           {/* 操作行置顶:规避移动端软键盘遮挡底部按钮 */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <Space>
@@ -182,22 +221,41 @@ export function ScenarioEditorDrawer({ editing, existingCodes, onClose }: Props)
               </Button>
             )}
           </div>
-          <div>
-            <Typography.Text type="secondary">
-              场景定义(JSON):code 为场景标识;segments 为责任链各段(角色/桥接/键字段/数据源/判差规则)。
-            </Typography.Text>
-            <Input.TextArea
-              className="mono"
-              aria-label="场景定义 JSON"
-              value={jsonText}
-              onChange={(e) => setJsonText(e.target.value)}
-              autoSize={{ minRows: 12, maxRows: 26 }}
-              readOnly={!canWrite}
-              status={parseError ? 'error' : undefined}
-              style={{ marginTop: 8 }}
+          {formValue && (
+            <ScenarioDefinitionForm
+              value={formValue}
+              disabled={!canWrite}
+              lockCode={editing?.mode === 'edit'}
+              onChange={applyForm}
             />
-            {parseError && <Typography.Text type="danger">{parseError}</Typography.Text>}
-          </div>
+          )}
+          <Collapse
+            defaultActiveKey={['json']}
+            items={[
+              {
+                key: 'json',
+                label: '场景定义 JSON',
+                children: (
+                  <div>
+                    <Typography.Text type="secondary">
+                      保存提交原文。绝对容差走字符串字段，避免大于 2^53 的分值被 Number 舍入。
+                    </Typography.Text>
+                    <Input.TextArea
+                      className="mono"
+                      aria-label="场景定义 JSON"
+                      value={jsonText}
+                      onChange={(e) => applyJson(e.target.value)}
+                      autoSize={{ minRows: 12, maxRows: 26 }}
+                      readOnly={!canWrite}
+                      status={parseError ? 'error' : undefined}
+                      style={{ marginTop: 8 }}
+                    />
+                    {parseError && <Typography.Text type="danger">{parseError}</Typography.Text>}
+                  </div>
+                ),
+              },
+            ]}
+          />
         </Space>
       )}
     </Drawer>

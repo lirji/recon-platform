@@ -9,6 +9,10 @@ vi.mock('../api/recon', () => ({
   getDiscrepancy: vi.fn(),
   resolveDiscrepancy: vi.fn(),
   closeDiscrepancy: vi.fn(),
+  getGroupRecords: vi.fn(),
+  executeReversal: vi.fn(),
+  submitReversalApproval: vi.fn(),
+  proposeRemediation: vi.fn(),
 }))
 
 const mockedList = vi.mocked(listDiscrepancies)

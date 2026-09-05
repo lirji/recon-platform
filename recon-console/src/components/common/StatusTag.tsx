@@ -65,6 +65,22 @@ export function ReversalStatusTag({ status }: { status: string }) {
   return <Tag color={reversalColors[status] || 'default'}>{reversalLabels[status] || status}</Tag>
 }
 
+const alertLabels: Record<string, string> = {
+  PENDING: '待投递',
+  SENT: '已发送',
+  FAILED: '投递失败',
+}
+
+const alertColors: Record<string, string> = {
+  PENDING: 'warning',
+  SENT: 'success',
+  FAILED: 'error',
+}
+
+export function AlertStatusTag({ status }: { status: string }) {
+  return <Tag color={alertColors[status] || 'default'}>{alertLabels[status] || status}</Tag>
+}
+
 export const discrepancyTypeLabels: Record<string, string> = {
   BRIDGE_BROKEN: '桥接断裂',
   CURRENCY_MISMATCH: '币种不符',
@@ -76,6 +92,40 @@ export const discrepancyTypeLabels: Record<string, string> = {
   TIMING: '时点差异',
   MISSING: '记录缺失',
   FX_RATE_DIFF: '汇率差异',
+}
+
+const remediationLabels: Record<string, string> = {
+  PROPOSED: '待审批',
+  APPROVED: '已批准',
+  REJECTED: '已驳回',
+  DISPATCHING: '派发中',
+  SUCCEEDED: '已成功',
+  FAILED: '已失败',
+  UNKNOWN: '未知',
+}
+
+const remediationColors: Record<string, string> = {
+  PROPOSED: 'warning',
+  APPROVED: 'processing',
+  REJECTED: 'default',
+  DISPATCHING: 'processing',
+  SUCCEEDED: 'success',
+  FAILED: 'error',
+  UNKNOWN: 'default',
+}
+
+export function RemediationStatusTag({ status }: { status: string }) {
+  return <Tag color={remediationColors[status] || 'default'}>{remediationLabels[status] || status}</Tag>
+}
+
+const remediationActionLabels: Record<string, string> = {
+  REISSUE: '补发',
+  REVERSE: '冲正',
+  MANUAL_REVIEW: '人工复核',
+}
+
+export function RemediationActionTag({ action }: { action: string }) {
+  return <Tag>{remediationActionLabels[action] || action}</Tag>
 }
 
 export function DiscrepancyTypeTag({ type }: { type: string }) {

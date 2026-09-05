@@ -2,12 +2,16 @@ package com.lrj.recon.batch.ods;
 
 import java.time.Instant;
 
+/**
+ * 两条上游事件流归一化后的 ODS 事实；金额与数量口径互斥，避免用占位币种伪装非现金权益。
+ */
 public record BenefitOdsEvent(
         String tenantId, String eventId, FactType factType, String issueId, String orderNo,
         String channelSerialNo, String currency, Long amountMinor, String entryType,
         String skuId, Long quantity, String fulfillmentStatus, String providerRef,
         Instant occurredAt, String cellId, String shardKey, Integer sourcePartition,
-        Long sourceOffset, String rawRef) {
+        Long sourceOffset, String rawRef, String expectedSourceSystem,
+        String marketingSourceRequestId, String benefitOrderNo) {
 
     public BenefitOdsEvent {
         require("tenantId", tenantId); require("eventId", eventId); require("issueId", issueId);
@@ -15,8 +19,11 @@ public record BenefitOdsEvent(
         if (factType == null) throw new IllegalArgumentException("factType is required");
         if (occurredAt == null) throw new IllegalArgumentException("occurredAt is required");
         if (factType.monetary()) {
-            require("orderNo", orderNo); require("currency", currency); require("entryType", entryType);
-            if (currency.length() != 3 || amountMinor == null) throw new IllegalArgumentException("cash fact requires money");
+            if (factType != FactType.CASH_EXPECTED) require("orderNo", orderNo);
+            require("currency", currency); require("entryType", entryType);
+            if (!currency.matches("[A-Z]{3}") || amountMinor == null || amountMinor <= 0) {
+                throw new IllegalArgumentException("cash fact requires positive money and uppercase ISO currency");
+            }
             if (skuId != null || quantity != null) throw new IllegalArgumentException("cash fact cannot carry entitlement measure");
         } else {
             require("skuId", skuId); require("fulfillmentStatus", fulfillmentStatus);
@@ -25,6 +32,17 @@ public record BenefitOdsEvent(
                 throw new IllegalArgumentException("entitlement fact must not use synthetic currency/amount");
             }
         }
+    }
+
+    /** 兼容既有回放调用；新事件消费必须传入关联字段。 */
+    public BenefitOdsEvent(String tenantId, String eventId, FactType factType, String issueId, String orderNo,
+                           String channelSerialNo, String currency, Long amountMinor, String entryType,
+                           String skuId, Long quantity, String fulfillmentStatus, String providerRef,
+                           Instant occurredAt, String cellId, String shardKey, Integer sourcePartition,
+                           Long sourceOffset, String rawRef) {
+        this(tenantId, eventId, factType, issueId, orderNo, channelSerialNo, currency, amountMinor, entryType,
+                skuId, quantity, fulfillmentStatus, providerRef, occurredAt, cellId, shardKey, sourcePartition,
+                sourceOffset, rawRef, null, null, orderNo);
     }
 
     private static void require(String name, String value) {

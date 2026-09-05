@@ -168,10 +168,10 @@ public class GenericReconJobConfig {
             ReconJobContext ctx,
             @Value("#{stepExecutionContext['segmentIndex']}") Integer segmentIndex) {
         SegmentDef def = segmentByIndex(ctx.scenarioCode(), segmentIndex);
-        SourceReadContext left = new SourceReadContext(ctx.runId(), def.segmentId(), Side.LEFT,
-                def.spec().leftRole(), ctx.bucketCount(), def.leftSource());
-        SourceReadContext right = new SourceReadContext(ctx.runId(), def.segmentId(), Side.RIGHT,
-                def.spec().rightRole(), ctx.bucketCount(), def.rightSource());
+        SourceReadContext left = new SourceReadContext(ctx.runId(), ctx.tenantId(), def.segmentId(), Side.LEFT,
+                def.spec().leftRole(), ctx.bucketCount(), ctx.matchWindowFrom(), ctx.matchWindowTo(), def.leftSource());
+        SourceReadContext right = new SourceReadContext(ctx.runId(), ctx.tenantId(), def.segmentId(), Side.RIGHT,
+                def.spec().rightRole(), ctx.bucketCount(), ctx.matchWindowFrom(), ctx.matchWindowTo(), def.rightSource());
         return new SourceAdapterItemReader(sourceAdapter, rejectStore, List.of(left, right));
     }
 
@@ -201,6 +201,7 @@ public class GenericReconJobConfig {
     public EvaluateProcessor genericEvaluateProcessor(
             EvaluatorResolver evaluatorResolver,
             @Value("#{stepExecutionContext['runId']}") String runId,
+            @Value("#{jobParameters['tenantId']}") String tenantId,
             @Value("#{stepExecutionContext['segmentId']}") String segmentId,
             @Value("#{stepExecutionContext['scenarioCode']}") String scenarioCode,
             @Value("#{stepExecutionContext['accountingPeriod']}") String accountingPeriod,
@@ -209,6 +210,7 @@ public class GenericReconJobConfig {
         SegmentDef def = segmentById(scenarioCode, segmentId);
         EvaluationContext evalCtx = EvaluationContext.fromSegment(def.spec())
                 .runId(runId)
+                .tenantId(tenantId)
                 .scenarioCode(scenarioCode)
                 .accountingPeriod(accountingPeriod)
                 .matchWindowFrom(Instant.ofEpochMilli(windowFrom))

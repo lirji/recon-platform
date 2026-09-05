@@ -88,6 +88,27 @@ class BenefitRemediationIntegrationTest {
     }
 
     @Test
+    void listFiltersByTenantAndStatus() {
+        var proposed = service.propose(new BenefitRemediationService.ProposeCommand(
+                "benefit-test", "ENTITLEMENT_FULFILLMENT", "DISC-LIST-1", "ITEM-L1", null,
+                RemediationAction.MANUAL_REVIEW, "need human review"));
+        service.propose(new BenefitRemediationService.ProposeCommand(
+                "benefit-test", "ENTITLEMENT_FULFILLMENT", "DISC-LIST-2", "ITEM-L2", "OP-L2",
+                RemediationAction.REVERSE, "provider proves over-issued"));
+        service.reject("benefit-test", proposed.suggestionId(), "APPROVAL-LIST");
+
+        var all = service.list("benefit-test", null, 0, 20);
+        assertThat(all.totalElements()).isEqualTo(2);
+        assertThat(all.content()).extracting(row -> row.discrepancyRef())
+                .containsExactly("DISC-LIST-2", "DISC-LIST-1");
+
+        var rejected = service.list("benefit-test", "REJECTED", 0, 20);
+        assertThat(rejected.totalElements()).isEqualTo(1);
+        assertThat(rejected.content().get(0).suggestionId()).isEqualTo(proposed.suggestionId());
+        assertThat(rejected.content().get(0).status()).isEqualTo("REJECTED");
+    }
+
+    @Test
     void reissueWithoutOriginalOperationIsRejectedBeforePersistence() {
         assertThatThrownBy(() -> service.propose(new BenefitRemediationService.ProposeCommand(
                 "benefit-test", "ENTITLEMENT_FULFILLMENT", "DISC-2", "ITEM-2", null,

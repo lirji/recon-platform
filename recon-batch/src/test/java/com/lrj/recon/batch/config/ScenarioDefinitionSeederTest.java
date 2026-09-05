@@ -35,7 +35,7 @@ class ScenarioDefinitionSeederTest {
         assertThat(s.definition().segments()).hasSize(2);
 
         ScenarioDefinitionStore.Stored benefit = store.find(BenefitCashThreeWayScenario.SCENARIO_CODE).orElseThrow();
-        assertThat(benefit.enabled()).isFalse();
+        assertThat(benefit.enabled()).isTrue();
         assertThat(benefit.definition().segments()).hasSize(2);
     }
 

@@ -69,6 +69,19 @@ class ThreeWayRollupTest {
     }
 
     @Test
+    void configDrivenSegmentIdsAreRolledUpWhenBuiltinIdsAreAbsent() throws Exception {
+        seedRun("run-cfg", "COMPLETED");
+        seedReport("rep-c1", "run-cfg", "SEG1", "USD", true, 0L);
+        seedReport("rep-c2", "run-cfg", "SEG2", "USD", true, 0L);
+
+        mvc.perform(get("/recon/runs/run-cfg/three-way"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.threeWayBalanced").value(true))
+                .andExpect(jsonPath("$.currencies[0].seg1.segmentId").value("SEG1"))
+                .andExpect(jsonPath("$.currencies[0].seg2.segmentId").value("SEG2"));
+    }
+
+    @Test
     void missingSecondSegmentIsInconsistent() throws Exception {
         seedRun("run-partial", "COMPLETED");
         seedReport("rep-5", "run-partial", "SEG1_MKT_ACCT", "USD", true, 0L);

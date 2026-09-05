@@ -10,19 +10,36 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.MessageDigest;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.HexFormat;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class BenefitRemediationService {
+    private static final int DEFAULT_PAGE_SIZE = 20;
+    private static final int MAX_PAGE_SIZE = 100;
+    private static final int MAX_PAGE = 1_000_000;
+    private static final Set<String> STATUSES = Arrays.stream(RemediationStatus.values())
+            .map(Enum::name).collect(Collectors.toUnmodifiableSet());
+
     private final RemediationSuggestionRepository suggestions;
     private final RemediationCommandOutboxRepository commands;
+    private final RemediationSuggestionQuery query;
     private final ObjectMapper json;
 
     public BenefitRemediationService(RemediationSuggestionRepository suggestions,
-                                     RemediationCommandOutboxRepository commands, ObjectMapper json) {
-        this.suggestions = suggestions; this.commands = commands; this.json = json;
+                                     RemediationCommandOutboxRepository commands,
+                                     RemediationSuggestionQuery query,
+                                     ObjectMapper json) {
+        this.suggestions = suggestions;
+        this.commands = commands;
+        this.query = query;
+        this.json = json;
     }
 
     @Transactional
@@ -107,11 +124,65 @@ public class BenefitRemediationService {
         return value;
     }
 
+    /**
+     * 管理台列表:必填 tenantId,可选 status;page/size 与其它 console 查询同一上限。
+     * 只读,不触发 outbox / 中台闭环。
+     */
+    public ReconConsoleQueryRepository.PageResult<RemediationSuggestionQuery.RemediationView> list(
+            String tenantId, String status, Integer page, Integer size) {
+        String tenant = requiredText(tenantId, "tenantId", 64);
+        String normalizedStatus = enumValue(status);
+        int normalizedPage = normalizePage(page);
+        int normalizedSize = normalizeSize(size);
+        long total = query.count(tenant, normalizedStatus);
+        List<RemediationSuggestionQuery.RemediationView> rows =
+                query.list(tenant, normalizedStatus, normalizedSize, normalizedPage * normalizedSize);
+        return ReconConsoleQueryRepository.PageResult.of(rows, normalizedPage, normalizedSize, total);
+    }
+
     public record ProposeCommand(String tenantId, String scenarioCode, String discrepancyRef,
                                  String awardItemNo, String originalOperationNo,
                                  RemediationAction action, String reason) {}
 
     private static void require(String name, String value) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " is required");
+    }
+
+    private static String requiredText(String value, String field, int maxLength) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(field + " is required");
+        }
+        String normalized = value.trim();
+        if (normalized.length() > maxLength) {
+            throw new IllegalArgumentException(field + " must not exceed " + maxLength + " characters");
+        }
+        return normalized;
+    }
+
+    private static String enumValue(String status) {
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+        String normalized = status.trim().toUpperCase(Locale.ROOT);
+        if (!STATUSES.contains(normalized)) {
+            throw new IllegalArgumentException("status must be one of " + STATUSES);
+        }
+        return normalized;
+    }
+
+    private static int normalizePage(Integer page) {
+        int value = page == null ? 0 : page;
+        if (value < 0 || value > MAX_PAGE) {
+            throw new IllegalArgumentException("page must be between 0 and " + MAX_PAGE);
+        }
+        return value;
+    }
+
+    private static int normalizeSize(Integer size) {
+        int value = size == null ? DEFAULT_PAGE_SIZE : size;
+        if (value < 1 || value > MAX_PAGE_SIZE) {
+            throw new IllegalArgumentException("size must be between 1 and " + MAX_PAGE_SIZE);
+        }
+        return value;
     }
 }

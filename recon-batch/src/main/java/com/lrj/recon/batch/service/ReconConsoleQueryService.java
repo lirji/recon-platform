@@ -3,6 +3,7 @@ package com.lrj.recon.batch.service;
 import com.lrj.recon.core.domain.model.DiscrepancyType;
 import com.lrj.recon.core.domain.model.DispositionStatus;
 import com.lrj.recon.core.domain.model.ReconRunStatus;
+import com.lrj.recon.core.domain.model.SourceRole;
 import com.lrj.recon.scenario.MarketingThreeWayScenario;
 import org.springframework.stereotype.Service;
 
@@ -28,8 +29,10 @@ public class ReconConsoleQueryService {
     private static final int MAX_REFINE_VIOLATIONS = 100;
     private static final int MAX_GROUP_RECORDS = 500;
     private static final Set<String> RUN_STATUSES = enumNames(ReconRunStatus.values());
+    // 金额与非金额差异都投影到通用枚举；UNKNOWN 是需人工复核的显式差异，不是非法参数。
     private static final Set<String> DISCREPANCY_TYPES = enumNames(DiscrepancyType.values());
     private static final Set<String> DISPOSITION_STATUSES = dispositionStatuses();
+    private static final Set<String> SOURCE_ROLES = enumNames(SourceRole.values());
 
     private final ReconConsoleQueryRepository repository;
 
@@ -95,7 +98,8 @@ public class ReconConsoleQueryService {
      *   <li>{@code bridgeBrokenMinor} = 两段桥断额之和(两个独立断点阶段,非重复计),三方链路专有诊断;</li>
      *   <li>{@code threeWayBalanced} = 所有币种皆 consistent(无报表 → null)。</li>
      * </ul>
-     * 仅识别营销三方场景的两段(MVP 唯一三方场景);其它段忽略。
+     * 优先识别营销三方内置段码({@code SEG1_MKT_ACCT}/{@code SEG2_ACCT_CHANNEL});若该 Run 报表不含这两段
+     * (配置驱动场景自定义段 id),则回退为按段码排序后的前两段,使两段配置场景也能出合并视图。
      */
     public ReconConsoleQueryRepository.ThreeWayReport threeWayRollup(String runId) {
         ReconConsoleQueryRepository.RunDetail detail = getRun(runId);
@@ -103,11 +107,30 @@ public class ReconConsoleQueryService {
 
         Map<String, ReconConsoleQueryRepository.ReportEntry> seg1 = new HashMap<>();
         Map<String, ReconConsoleQueryRepository.ReportEntry> seg2 = new HashMap<>();
+        boolean usedBuiltin = false;
         for (ReconConsoleQueryRepository.ReportEntry entry : detail.reports()) {
             if (MarketingThreeWayScenario.SEG1.equals(entry.segmentId())) {
                 seg1.put(entry.currency(), entry);
+                usedBuiltin = true;
             } else if (MarketingThreeWayScenario.SEG2.equals(entry.segmentId())) {
                 seg2.put(entry.currency(), entry);
+                usedBuiltin = true;
+            }
+        }
+        if (!usedBuiltin) {
+            List<String> ids = detail.reports().stream()
+                    .map(ReconConsoleQueryRepository.ReportEntry::segmentId)
+                    .distinct()
+                    .sorted()
+                    .toList();
+            String first = ids.isEmpty() ? null : ids.get(0);
+            String second = ids.size() > 1 ? ids.get(1) : null;
+            for (ReconConsoleQueryRepository.ReportEntry entry : detail.reports()) {
+                if (first != null && first.equals(entry.segmentId())) {
+                    seg1.put(entry.currency(), entry);
+                } else if (second != null && second.equals(entry.segmentId())) {
+                    seg2.put(entry.currency(), entry);
+                }
             }
         }
 
@@ -164,6 +187,22 @@ public class ReconConsoleQueryService {
         List<ReconConsoleQueryRepository.GroupRecordDetail> records =
                 truncated ? List.copyOf(found.subList(0, MAX_GROUP_RECORDS)) : found;
         return new ReconConsoleQueryRepository.GroupRecordReport(rid, seg, gk, records.size(), truncated, records);
+    }
+
+    /**
+     * 载入期拒绝行分页。先确认 Run 存在(404),再查 {@code recon_record_reject};
+     * page/size 与其它管理台列表同一上限。
+     */
+    public ReconConsoleQueryRepository.PageResult<ReconConsoleQueryRepository.RejectEntry> listRejects(
+            String runId, String segmentId, String sourceRole, Integer page, Integer size) {
+        String id = requiredText(runId, "runId", 64);
+        repository.findRun(id).orElseThrow(() -> new NotFoundException("run not found: " + id));
+        return repository.listRejects(new ReconConsoleQueryRepository.RejectFilter(
+                id,
+                text(segmentId, "segmentId", 32),
+                enumValue(sourceRole, "sourceRole", SOURCE_ROLES),
+                normalizePage(page),
+                normalizeSize(size)));
     }
 
     private static int normalizePage(Integer page) {

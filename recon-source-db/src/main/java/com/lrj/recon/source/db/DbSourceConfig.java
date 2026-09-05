@@ -23,6 +23,9 @@ final class DbSourceConfig {
     static final String P_BIZ_STATUS_COLUMN = "bizStatusColumn";
     static final String P_BIZ_TIME_COLUMN = "bizTimeColumn";
     static final String P_POSTING_TIME_COLUMN = "postingTimeColumn";
+    static final String P_TENANT_COLUMN = "tenantColumn";
+    static final String P_WINDOW_TIME_COLUMN = "windowTimeColumn";
+    static final String P_RAW_REF_COLUMN = "rawRefColumn";
     static final String P_PAGE_SIZE = "pageSize";
 
     static final int DEFAULT_PAGE_SIZE = 1000;
@@ -39,6 +42,9 @@ final class DbSourceConfig {
     final String bizStatusColumn;  // nullable
     final String bizTimeColumn;    // nullable
     final String postingTimeColumn;// nullable
+    final String tenantColumn;     // nullable；权益 ODS 必填
+    final String windowTimeColumn; // nullable；权益 ODS 必填
+    final String rawRefColumn;     // nullable
     final int pageSize;
 
     private DbSourceConfig(Map<String, String> p) {
@@ -55,6 +61,9 @@ final class DbSourceConfig {
         this.bizStatusColumn = p.get(P_BIZ_STATUS_COLUMN);
         this.bizTimeColumn = p.get(P_BIZ_TIME_COLUMN);
         this.postingTimeColumn = p.get(P_POSTING_TIME_COLUMN);
+        this.tenantColumn = optional(p, P_TENANT_COLUMN);
+        this.windowTimeColumn = optional(p, P_WINDOW_TIME_COLUMN);
+        this.rawRefColumn = optional(p, P_RAW_REF_COLUMN);
         this.pageSize = parsePageSize(p.get(P_PAGE_SIZE));
     }
 
@@ -68,6 +77,11 @@ final class DbSourceConfig {
             throw new IllegalArgumentException("DbSourceAdapter descriptor missing required param: " + key);
         }
         return v.trim();
+    }
+
+    private static String optional(Map<String, String> p, String key) {
+        String value = p.get(key);
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private static int parsePageSize(String raw) {

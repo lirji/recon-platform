@@ -30,8 +30,8 @@ public class ScenarioDefinitionSeeder implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         for (BuiltinScenario builtin : java.util.List.of(
                 new BuiltinScenario(MarketingThreeWayDefinition.seed(), true),
-                // 权益中台现金三方数据已可落 ODS；旧通用执行器尚未强制 tenant/window 过滤，先禁止误启动。
-                new BuiltinScenario(BenefitCashThreeWayDefinition.seed(), false))) {
+                // Slice 3 已把 tenant/window 谓词下推到 DB reader，现金场景可安全按租户发起。
+                new BuiltinScenario(BenefitCashThreeWayDefinition.seed(), true))) {
             ScenarioDefinition definition = builtin.definition();
             if (store.find(definition.code()).isPresent()) {
                 continue; // 幂等:已存在(可能被管理台改过),不覆盖

@@ -1,15 +1,18 @@
 # 权益中台对账与纠错接入
 
-`benefit-center` 通过 `benefit.fulfillment-event.v1` 输出履约事实。对账平台先落独立 ODS，再按权益是否具有货币含义分流，避免为券、兑换码或实物伪造币种和 `0` 金额。
+`benefit-center` 通过 `benefit.fulfillment-event.v1` 输出履约事实，营销通过
+`marketing.award-expected.v1` 输出入队事务内的应发事实。对账平台先落独立 ODS，再按权益是否具有货币含义分流，避免为券、兑换码或实物伪造币种和 `0` 金额。
 
 ## 事实分流
 
 | 权益 | 对账模型 | 当前落地 |
 |---|---|---|
-| CASH | `BENEFIT_CASH_3WAY`：中台应发 ↔ 内部账务 ↔ 渠道到账/扣款 | 场景定义、ODS 与种子已提供；默认 disabled |
-| COUPON/SERVICE_VOUCHER/REDEMPTION_CODE/PHYSICAL | `ENTITLEMENT_FULFILLMENT`：issueId、SKU、quantity、status、providerRef | 独立模型与分类器已提供；完整批作业后续启用 |
+| CASH | `BENEFIT_CASH_3WAY`：营销应发 ↔ 内部账务 ↔ 渠道到账/扣款 | tenant/window 谓词已下推，内置场景可按租户发起 |
+| COUPON/SERVICE_VOUCHER/REDEMPTION_CODE/PHYSICAL | `ENTITLEMENT_FULFILLMENT`：issueId、SKU、quantity、status、providerRef | 独立数量/状态批作业，差异投影为 `measureKind=QUANTITY` |
 
-同一个外部事件按 `eventId + payloadHash` 进入 inbox：完全重放被忽略，相同 eventId 的不同 payload 被拒绝。仅接受兼容的 schema major；现金内部应发、账务和渠道事实必须来自各自角色，不能用一条履约事件冒充三方。
+每个 topic 有独立 inbox consumer namespace，同一消费者内按 `eventId + payloadHash` 幂等：完全重放被忽略，相同 eventId 的不同 payload 被拒绝。仅接受兼容的 schema major。现金应发只来自 `marketing.award-expected.v1`；履约 `INTERNAL` 和 `PROVIDER` 分别落账务与渠道 ODS，禁止用一条履约事件冒充三方。
+
+Run 必须携带 `tenantId`（权益场景拒绝 `legacy`/缺失值），`RunKey` 和 `SourceReadContext` 同时携带租户、账期窗口。DB reader 在每一页 keyset SQL 中下推 `tenant_id = ?` 和事件时间谓词，不会先全租户扫描后再内存过滤。
 
 ## 受控 remediation
 
@@ -27,6 +30,24 @@ RECON_REMEDIATION_RELAY_ENABLED=false
 RECON_REMEDIATION_RESULT_CONSUMER_ENABLED=false
 ```
 
-## 上线限制
+## 启用顺序与回滚
 
-现有通用金额 Job 的 DB reader 尚未完整携带 tenant/账期过滤，因此 `BENEFIT_CASH_3WAY` seed 保持 disabled，不能直接面向全租户定时运行。上线前必须完成 tenant-aware `RunKey/SourceReadContext`、源端窗口谓词、租户样本守恒和迟到数据重跑验证。非现金分类器已可验证规则，但 `ENTITLEMENT_FULFILLMENT` 的持久化批运行、运营报表和处置 UI 仍属于后续工程；在此之前只可作为 ODS/分类基线，不能宣称全自动闭环。
+1. 先部署营销与权益契约字段：营销应发包含 `benefitType/currency`，履约包含 `clientItemId/sourceRequestId`。
+2. 部署 recon 迁移和应用，保持 `RECON_BENEFIT_ODS_KAFKA_ENABLED=false`，先验证新表/索引和运行权限。
+3. 开启 ODS consumer，观察两个 consumer group 的 lag、inbox payload conflict 和拒绝消息。
+4. 按单租户手工发起 `BENEFIT_CASH_3WAY` / `ENTITLEMENT_FULFILLMENT`，验证样本守恒和迟到数据重跑，再考虑配置定时任务。
+
+回滚时先停权益场景定时发起，再设 `RECON_BENEFIT_ODS_KAFKA_ENABLED=false` 停两个 consumer。已落 ODS、inbox 和差异保留审计，不删表、不回退偏移；恢复时使用原 consumer group 继续消费。Remediation relay/result consumer 是独立开关，不随 ODS consumer 自动打开。
+
+## 交叉系统键
+
+- `tenantId`：业务租户，权益 Run 的必填隔离键。
+- `campaignId + definitionVersion`：营销定义版本。
+- `benefitSkuId + skuVersion`：权益品版本。
+- `sourceRequestId`：跨系统幂等键，在差异读模型中投影为 `marketingSourceRequestId`。
+- `clientItemId`：营销应发与权益履约的稳定项级 join key。
+- `awardOrderNo`：在差异读模型中投影为 `benefitOrderNo`。
+
+## 运行边界
+
+消费开关默认仍关，生产启用前需在目标 MySQL/PostgreSQL 上验证迁移、索引选择性、迟到数据重跑和峰值账期容量；本地 H2 结果不代表生产 SLO。非金额差异已进入统一差异/人工处置读模型，但金额守恒报表不适用于数量模型。

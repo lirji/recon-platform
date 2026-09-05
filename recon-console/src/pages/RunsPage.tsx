@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { EyeOutlined, FilterOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import { Button, Card, Col, Form, Grid, Input, Pagination, Row, Select, Space, Table, Typography } from 'antd'
-import { listRuns } from '../api/recon'
+import { listRuns, listScenarios } from '../api/recon'
 import type { RunFilters, RunSummary } from '../api/types'
 import { EmptyState, ErrorState } from '../components/common/AsyncState'
 import { PageHeader } from '../components/common/PageHeader'
@@ -10,7 +11,9 @@ import { RunStatusTag } from '../components/common/StatusTag'
 import { LaunchRunModal } from '../components/runs/LaunchRunModal'
 import { RunDetailDrawer } from '../components/runs/RunDetailDrawer'
 import { useAuth } from '../auth/AuthContext'
+import { scenarioLabel } from '../constants/scenario'
 import { errorMessage, formatDateTime } from '../utils/format'
+import { pickSearchParams, toSearchParams } from '../utils/searchParams'
 
 const statusOptions = [
   ['CREATED', '已创建'],
@@ -21,25 +24,52 @@ const statusOptions = [
   ['FAILED', '执行失败'],
 ].map(([value, label]) => ({ value, label }))
 
+const FILTER_KEYS = ['scenarioCode', 'accountingPeriod', 'status'] as const
+
 export function RunsPage() {
   const screens = Grid.useBreakpoint()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [form] = Form.useForm<RunFilters>()
-  const [filters, setFilters] = useState<RunFilters>({ page: 0, size: 20 })
+  const seeded = pickSearchParams(searchParams, FILTER_KEYS)
+  const [pageState, setPageState] = useState({ page: 0, size: 20 })
   const [launchOpen, setLaunchOpen] = useState(false)
   const canLaunch = useAuth().can('recon.launch')
   const [runId, setRunId] = useState<string | null>(null)
+  const filters: RunFilters = { ...seeded, ...pageState }
   const runs = useQuery({
     queryKey: ['runs', filters],
     queryFn: () => listRuns(filters),
     refetchInterval: 20_000,
     refetchIntervalInBackground: false,
   })
+  const scenarios = useQuery({ queryKey: ['scenarios'], queryFn: listScenarios })
+  const scenarioOptions = (scenarios.data || []).map((item) => ({
+    value: item.code,
+    label: scenarioLabel(item.code),
+  }))
 
-  const applyFilters = (values: RunFilters) => setFilters({ ...values, page: 0, size: filters.size || 20 })
+  useEffect(() => {
+    form.setFieldsValue({
+      scenarioCode: seeded.scenarioCode,
+      accountingPeriod: seeded.accountingPeriod,
+      status: seeded.status,
+    })
+  }, [form, seeded.scenarioCode, seeded.accountingPeriod, seeded.status])
+
+  const applyFilters = (values: RunFilters) => {
+    setPageState((current) => ({ page: 0, size: current.size }))
+    setSearchParams(toSearchParams({
+      scenarioCode: values.scenarioCode,
+      accountingPeriod: values.accountingPeriod,
+      status: values.status,
+    }), { replace: true })
+  }
   const resetFilters = () => {
     form.resetFields()
-    setFilters({ page: 0, size: filters.size || 20 })
+    setPageState((current) => ({ page: 0, size: current.size }))
+    setSearchParams({}, { replace: true })
   }
+  const hasFilters = FILTER_KEYS.some((key) => Boolean(seeded[key]))
 
   const columns = [
     {
@@ -48,6 +78,7 @@ export function RunsPage() {
       width: 290,
       render: (value: string) => <Button type="link" className="table-link" onClick={() => setRunId(value)}>{value}</Button>,
     },
+    { title: '场景', dataIndex: 'scenarioCode', width: 180, render: (value: string) => scenarioLabel(value) },
     { title: '账期', dataIndex: 'accountingPeriod', width: 120 },
     { title: '序号', dataIndex: 'sequenceNo', width: 70, render: (value: number) => `#${value}` },
     { title: '状态', dataIndex: 'status', width: 110, render: (status: string) => <RunStatusTag status={status} /> },
@@ -75,7 +106,7 @@ export function RunsPage() {
       <Card className="filter-card">
         <Form<RunFilters> form={form} layout={screens.lg ? 'inline' : 'vertical'} onFinish={applyFilters}>
           <Form.Item name="scenarioCode" label="场景">
-            <Select allowClear placeholder="全部场景" style={{ minWidth: 180 }} options={[{ value: 'MARKETING_3WAY', label: '营销三方对账' }]} />
+            <Select allowClear showSearch optionFilterProp="label" placeholder="全部场景" style={{ minWidth: 180 }} loading={scenarios.isPending} options={scenarioOptions} />
           </Form.Item>
           <Form.Item name="accountingPeriod" label="账期">
             <Input type="date" style={{ minWidth: 160 }} />
@@ -102,8 +133,8 @@ export function RunsPage() {
             dataSource={runs.data?.content || []}
             loading={runs.isPending || runs.isFetching}
             pagination={false}
-            scroll={{ x: 1200 }}
-            locale={{ emptyText: <EmptyState filtered={Object.keys(filters).some((key) => !['page', 'size'].includes(key))} onReset={resetFilters} /> }}
+            scroll={{ x: 1380 }}
+            locale={{ emptyText: <EmptyState filtered={hasFilters} onReset={resetFilters} /> }}
           />
         )}
         {!runs.isError && !screens.md && (
@@ -112,10 +143,10 @@ export function RunsPage() {
               <button className="mobile-data-card" key={run.runId} onClick={() => setRunId(run.runId)}>
                 <span className="mobile-card-heading"><strong>{run.accountingPeriod} · #{run.sequenceNo}</strong><RunStatusTag status={run.status} /></span>
                 <span className="mono mobile-card-id">{run.runId}</span>
-                <span className="mobile-card-stats"><span>差异 {run.discrepancyCount}</span><span>待处理 {run.openDiscrepancyCount}</span><span>{formatDateTime(run.startedAt)}</span></span>
+                <span className="mobile-card-stats"><span>{scenarioLabel(run.scenarioCode)}</span><span>差异 {run.discrepancyCount}</span><span>待处理 {run.openDiscrepancyCount}</span><span>{formatDateTime(run.startedAt)}</span></span>
               </button>
             ))}
-            {!runs.isPending && runs.data?.content.length === 0 && <EmptyState filtered onReset={resetFilters} />}
+            {!runs.isPending && runs.data?.content.length === 0 && <EmptyState filtered={hasFilters} onReset={resetFilters} />}
           </Space>
         )}
         {runs.data && runs.data.totalElements > 0 && (
@@ -127,7 +158,7 @@ export function RunsPage() {
                 total={runs.data.totalElements}
                 showSizeChanger
                 showTotal={(total) => `共 ${total} 条`}
-                onChange={(page, size) => setFilters((current) => ({ ...current, page: page - 1, size }))}
+                onChange={(page, size) => setPageState({ page: page - 1, size })}
               />
             </Col>
           </Row>

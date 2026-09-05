@@ -1,6 +1,8 @@
 package com.lrj.recon.batch.web;
 
 import com.lrj.recon.batch.service.BenefitRemediationService;
+import com.lrj.recon.batch.service.ReconConsoleQueryRepository;
+import com.lrj.recon.batch.service.RemediationSuggestionQuery;
 import com.lrj.recon.core.domain.model.RemediationSuggestion;
 import org.springframework.web.bind.annotation.*;
 
@@ -9,6 +11,15 @@ import org.springframework.web.bind.annotation.*;
 public class BenefitRemediationController {
     private final BenefitRemediationService service;
     public BenefitRemediationController(BenefitRemediationService service) { this.service = service; }
+
+    @GetMapping
+    public ReconConsoleQueryRepository.PageResult<RemediationSuggestionQuery.RemediationView> list(
+            @RequestParam String tenantId,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        return service.list(tenantId, status, page, size);
+    }
 
     @PostMapping
     public RemediationSuggestion propose(@RequestBody BenefitRemediationService.ProposeCommand command) {

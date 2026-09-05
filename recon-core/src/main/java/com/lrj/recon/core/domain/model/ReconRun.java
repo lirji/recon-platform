@@ -99,6 +99,7 @@ public final class ReconRun {
 
     public String runId() { return runId; }
     public RunKey key() { return key; }
+    public String tenantId() { return key.tenantId(); }
     public String scenarioCode() { return key.scenarioCode(); }
     public String accountingPeriod() { return key.accountingPeriod(); }
     public int sequenceNo() { return key.sequenceNo(); }

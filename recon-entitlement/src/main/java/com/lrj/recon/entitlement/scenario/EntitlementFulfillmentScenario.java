@@ -28,6 +28,8 @@ public record EntitlementFulfillmentScenario(List<SideDefinition> sides) {
                 "table", table,
                 "idColumn", "id",
                 "tenantColumn", "tenant_id",
+                "windowTimeColumn", "occurred_at",
+                "rawRefColumn", "raw_ref",
                 "matchKeyColumn", "issue_id",
                 "bizTimeColumn", "occurred_at")));
     }

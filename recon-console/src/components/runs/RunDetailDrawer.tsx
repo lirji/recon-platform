@@ -1,16 +1,16 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { App, Button, Descriptions, Drawer, Empty, Grid, Popconfirm, Space, Table, Tabs, Typography } from 'antd'
+import { App, Button, Descriptions, Drawer, Empty, Grid, Popconfirm, Space, Tabs } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
-import { getRun, rerunRun } from '../../api/recon'
-import type { ReportEntry } from '../../api/types'
+import { getRun, listScenarios, rerunRun } from '../../api/recon'
 import { useAuth } from '../../auth/AuthContext'
 import { ErrorState, PageSkeleton } from '../common/AsyncState'
 import { RunStatusTag } from '../common/StatusTag'
-import { errorMessage, formatDateTime, formatMinor } from '../../utils/format'
+import { errorMessage, formatDateTime } from '../../utils/format'
+import { ConservationReportTable } from './ConservationReportTable'
+import { RefineViolationsAlert } from './RefineViolationsAlert'
+import { RejectsPanel } from './RejectsPanel'
 import { ThreeWayRollupPanel } from './ThreeWayRollupPanel'
-
-const THREE_WAY_SCENARIO = 'MARKETING_3WAY'
 
 interface Props {
   runId: string | null
@@ -28,6 +28,11 @@ export function RunDetailDrawer({ runId, onClose }: Props) {
     queryFn: () => getRun(runId!),
     enabled: Boolean(runId),
   })
+  const scenarios = useQuery({
+    queryKey: ['scenarios'],
+    queryFn: listScenarios,
+    enabled: Boolean(runId),
+  })
   const rerun = useMutation({
     mutationFn: () => rerunRun(runId!),
     onSuccess: async (result) => {
@@ -38,55 +43,32 @@ export function RunDetailDrawer({ runId, onClose }: Props) {
         queryClient.invalidateQueries({ queryKey: ['run-detail', runId] }),
         queryClient.invalidateQueries({ queryKey: ['discrepancies'] }),
         queryClient.invalidateQueries({ queryKey: ['three-way', runId] }),
+        queryClient.invalidateQueries({ queryKey: ['refine-violations', runId] }),
+        queryClient.invalidateQueries({ queryKey: ['run-rejects', runId] }),
       ])
     },
     onError: (error) => message.error(errorMessage(error)),
   })
 
-  const columns = [
-    { title: '分段', dataIndex: 'segmentId', width: 180 },
-    { title: '币种', dataIndex: 'currency', width: 80 },
-    {
-      title: '应对金额',
-      dataIndex: 'expectedTotalMinor',
-      width: 150,
-      render: (value: string, row: ReportEntry) => formatMinor(value, row.currency),
-    },
-    {
-      title: '已匹配',
-      dataIndex: 'matchedAmountMinor',
-      width: 150,
-      render: (value: string, row: ReportEntry) => formatMinor(value, row.currency),
-    },
-    {
-      title: '缺失',
-      dataIndex: 'missingMinor',
-      width: 130,
-      render: (value: string, row: ReportEntry) => formatMinor(value, row.currency),
-    },
-    {
-      title: '金额差',
-      dataIndex: 'amountMismatchMinor',
-      width: 130,
-      render: (value: string, row: ReportEntry) => formatMinor(value, row.currency),
-    },
-    {
-      title: '守恒',
-      dataIndex: 'balanced',
-      fixed: 'right' as const,
-      width: 90,
-      render: (balanced: boolean) => (
-        <Typography.Text type={balanced ? 'success' : 'danger'}>{balanced ? '通过' : '异常'}</Typography.Text>
-      ),
-    },
-  ]
+  const run = detail.data?.run
+  const reports = detail.data?.reports || []
+  const distinctSegments = new Set(reports.map((row) => row.segmentId)).size
+  const catalogSegments = scenarios.data?.find((item) => item.code === run?.scenarioCode)?.segmentCount ?? 0
+  const showThreeWay = distinctSegments >= 2 || catalogSegments >= 2
+
+  const conservationReport =
+    reports.length === 0 ? (
+      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该 Run 尚未生成报表" />
+    ) : (
+      <ConservationReportTable reports={reports} />
+    )
 
   return (
     <Drawer
       title="运行详情"
       open={Boolean(runId)}
       onClose={onClose}
-      width={screens.md ? 860 : '100%'}
+      width={screens.md ? 960 : '100%'}
       extra={
         runId && canLaunch && (
           <Popconfirm title="确认重跑当前 Run？" description="机器结果会重算，人工处置和审计会保留。" onConfirm={() => rerun.mutate()}>
@@ -97,58 +79,42 @@ export function RunDetailDrawer({ runId, onClose }: Props) {
     >
       {detail.isPending && <PageSkeleton />}
       {detail.isError && <ErrorState message={errorMessage(detail.error)} onRetry={() => void detail.refetch()} />}
-      {detail.data && (
+      {detail.data && run && (
         <Space direction="vertical" size={24} style={{ width: '100%' }}>
+          <RefineViolationsAlert runId={run.runId} />
+
           <Descriptions title="运行信息" bordered size="small" column={screens.md ? 2 : 1}>
-            <Descriptions.Item label="Run ID"><span className="mono">{detail.data.run.runId}</span></Descriptions.Item>
-            <Descriptions.Item label="状态"><RunStatusTag status={detail.data.run.status} /></Descriptions.Item>
-            <Descriptions.Item label="场景">{detail.data.run.scenarioCode}</Descriptions.Item>
-            <Descriptions.Item label="账期">{detail.data.run.accountingPeriod}</Descriptions.Item>
-            <Descriptions.Item label="序号">#{detail.data.run.sequenceNo}</Descriptions.Item>
-            <Descriptions.Item label="分桶数">{detail.data.run.bucketCount}</Descriptions.Item>
-            <Descriptions.Item label="差异数">{detail.data.run.discrepancyCount}</Descriptions.Item>
-            <Descriptions.Item label="待处理">{detail.data.run.openDiscrepancyCount}</Descriptions.Item>
-            <Descriptions.Item label="开始时间">{formatDateTime(detail.data.run.startedAt)}</Descriptions.Item>
-            <Descriptions.Item label="结束时间">{formatDateTime(detail.data.run.finishedAt)}</Descriptions.Item>
+            <Descriptions.Item label="Run ID"><span className="mono">{run.runId}</span></Descriptions.Item>
+            <Descriptions.Item label="状态"><RunStatusTag status={run.status} /></Descriptions.Item>
+            <Descriptions.Item label="场景">{run.scenarioCode}</Descriptions.Item>
+            <Descriptions.Item label="账期">{run.accountingPeriod}</Descriptions.Item>
+            <Descriptions.Item label="序号">#{run.sequenceNo}</Descriptions.Item>
+            <Descriptions.Item label="分桶数">{run.bucketCount}</Descriptions.Item>
+            <Descriptions.Item label="差异数">{run.discrepancyCount}</Descriptions.Item>
+            <Descriptions.Item label="待处理">{run.openDiscrepancyCount}</Descriptions.Item>
+            <Descriptions.Item label="开始时间">{formatDateTime(run.startedAt)}</Descriptions.Item>
+            <Descriptions.Item label="结束时间">{formatDateTime(run.finishedAt)}</Descriptions.Item>
           </Descriptions>
 
-          {(() => {
-            const conservationReport =
-              detail.data.reports.length === 0 ? (
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该 Run 尚未生成报表" />
-              ) : (
-                <Table
-                  rowKey={(row) => `${row.segmentId}:${row.currency}`}
-                  columns={columns}
-                  dataSource={detail.data.reports}
-                  pagination={false}
-                  size="small"
-                  scroll={{ x: 1000 }}
-                />
-              )
-            if (detail.data.run.scenarioCode !== THREE_WAY_SCENARIO) {
-              return (
-                <section>
-                  <h3 className="section-title">守恒报表</h3>
-                  {conservationReport}
-                </section>
-              )
-            }
-            return (
-              <Tabs
-                activeKey={activeKey}
-                onChange={setActiveKey}
-                items={[
-                  { key: 'conservation', label: '守恒报表', children: conservationReport },
-                  {
+          <Tabs
+            activeKey={activeKey}
+            onChange={setActiveKey}
+            items={[
+              { key: 'conservation', label: '守恒报表', children: conservationReport },
+              ...(showThreeWay
+                ? [{
                     key: 'three-way',
                     label: '三方合并',
-                    children: <ThreeWayRollupPanel runId={detail.data.run.runId} enabled={activeKey === 'three-way'} />,
-                  },
-                ]}
-              />
-            )
-          })()}
+                    children: <ThreeWayRollupPanel runId={run.runId} enabled={activeKey === 'three-way'} />,
+                  }]
+                : []),
+              {
+                key: 'rejects',
+                label: '拒绝行',
+                children: <RejectsPanel runId={run.runId} enabled={activeKey === 'rejects'} />,
+              },
+            ]}
+          />
         </Space>
       )}
     </Drawer>

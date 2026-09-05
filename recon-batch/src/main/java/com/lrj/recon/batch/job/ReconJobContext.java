@@ -17,10 +17,11 @@ import java.time.Instant;
  *   <li>其余 (scenario/period/seq/window/cutoff/bucketCount) 为 non-identifying: 只是 Step0 建 Run 的载荷,
  *       不参与实例身份。</li>
  * </ul>
- * 业务 Run 唯一性仍由 DB {@code uk_run(scenario_code, accounting_period, sequence_no)} 兜底 (claim 冲突挡并发)。
+ * 业务 Run 身份包含 tenant；当前序号按场景+账期全局分配，DB legacy 唯一键仍能以更强约束兜底并发 claim。
  */
 public record ReconJobContext(
         String runId,
+        String tenantId,
         String scenarioCode,
         String accountingPeriod,
         int sequenceNo,
@@ -31,6 +32,7 @@ public record ReconJobContext(
         long attempt) {
 
     public static final String P_RUN_ID = "runId";
+    public static final String P_TENANT_ID = "tenantId";
     public static final String P_ATTEMPT = "attempt";
     public static final String P_SCENARIO = "scenarioCode";
     public static final String P_PERIOD = "accountingPeriod";
@@ -41,22 +43,31 @@ public record ReconJobContext(
     public static final String P_BUCKET_COUNT = "bucketCount";
 
     public RunKey key() {
-        return RunKey.of(scenarioCode, accountingPeriod, sequenceNo);
+        return RunKey.of(tenantId, scenarioCode, accountingPeriod, sequenceNo);
     }
 
     /** 从 SpEL 注入的原始参数值构造 (long 型时间为 epoch millis)。 */
-    public static ReconJobContext of(String runId, String scenarioCode, String accountingPeriod, long sequenceNo,
+    public static ReconJobContext of(String runId, String tenantId, String scenarioCode, String accountingPeriod, long sequenceNo,
                                      long cutoffEpochMs, long windowFromEpochMs, long windowToEpochMs,
                                      long bucketCount, long attempt) {
-        return new ReconJobContext(runId, scenarioCode, accountingPeriod, (int) sequenceNo,
+        return new ReconJobContext(runId, tenantId, scenarioCode, accountingPeriod, (int) sequenceNo,
                 Instant.ofEpochMilli(cutoffEpochMs), Instant.ofEpochMilli(windowFromEpochMs),
                 Instant.ofEpochMilli(windowToEpochMs), (int) bucketCount, attempt);
+    }
+
+    /** 兼容历史测试和无租户源，新权益 Run 不得使用此构造器。 */
+    public ReconJobContext(String runId, String scenarioCode, String accountingPeriod, int sequenceNo,
+                           Instant cutoffTime, Instant matchWindowFrom, Instant matchWindowTo,
+                           int bucketCount, long attempt) {
+        this(runId, RunKey.LEGACY_TENANT, scenarioCode, accountingPeriod, sequenceNo, cutoffTime,
+                matchWindowFrom, matchWindowTo, bucketCount, attempt);
     }
 
     /** 组装 {@link JobParameters}: runId + attempt 为 identifying, 其余为载荷 (non-identifying)。 */
     public JobParameters toJobParameters() {
         return new JobParametersBuilder()
                 .addString(P_RUN_ID, runId, true)
+                .addString(P_TENANT_ID, tenantId, false)
                 .addLong(P_ATTEMPT, attempt, true)
                 .addString(P_SCENARIO, scenarioCode, false)
                 .addString(P_PERIOD, accountingPeriod, false)

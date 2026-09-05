@@ -28,6 +28,8 @@ public final class BenefitCashThreeWayDefinition {
         params.put("table", table);
         params.put("tenantColumn", "tenant_id");
         params.put("bizTimeColumn", "biz_time");
+        params.put("windowTimeColumn", "biz_time");
+        params.put("rawRefColumn", "raw_ref");
         return new ScenarioDefinition.Source(source.sourceType(), params);
     }
 }

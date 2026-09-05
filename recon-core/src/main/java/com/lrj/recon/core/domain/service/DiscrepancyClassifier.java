@@ -6,6 +6,7 @@ import com.lrj.recon.core.domain.model.EvaluationContext;
 import com.lrj.recon.core.domain.model.MatchGroup;
 import com.lrj.recon.core.domain.model.Presence;
 import com.lrj.recon.core.domain.model.SourceRole;
+import com.lrj.recon.core.domain.model.RunKey;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -221,8 +222,11 @@ public final class DiscrepancyClassifier {
         // 使每条 null-key 记录得唯一 fingerprint、各自成一行, 台账金额之和 == 守恒 bridge_broken/extra 额。
         // <b>非 null-match_key 路径 fingerprint 不变</b> (原样传 match_key 值), 保 A1 人工处置跨重跑 re-link 语义。
         String fingerprintMatchSlot = matchKeyVal != null ? matchKeyVal : nullKeyDiscriminant(g);
+        // legacy 指纹保持历史格式；租户原生 Run 把 tenant 纳入 scope，禁止同业务键跨租户串联处置。
+        String fingerprintScenario = ctx.tenantId() == null || RunKey.LEGACY_TENANT.equals(ctx.tenantId())
+                ? ctx.scenarioCode() : ctx.tenantId() + '\0' + ctx.scenarioCode();
         String fingerprint = Fingerprint.of(
-                ctx.scenarioCode(), ctx.accountingPeriod(), ctx.segmentId(),
+                fingerprintScenario, ctx.accountingPeriod(), ctx.segmentId(),
                 type.name(), groupKeyVal, fingerprintMatchSlot, bridgeStage);
         return Discrepancy.builder()
                 .discrepancyId(fingerprint) // M0 领域内以 fingerprint 为身份; 持久化层 (M1) 再分配主键

@@ -21,6 +21,17 @@ public enum DiscrepancyType {
     STATUS_MISMATCH(5),
     TIMING(6),
     MISSING(7),
+    // 非金额权益由 recon-entitlement 分类；放入通用投影枚举以支持统一人工处置。
+    MISSING_INTERNAL(Integer.MAX_VALUE),
+    MISSING_PROVIDER(Integer.MAX_VALUE),
+    EXTRA_INTERNAL(Integer.MAX_VALUE),
+    EXTRA_PROVIDER(Integer.MAX_VALUE),
+    DUPLICATE_INTERNAL(Integer.MAX_VALUE),
+    DUPLICATE_PROVIDER(Integer.MAX_VALUE),
+    QUANTITY_MISMATCH(Integer.MAX_VALUE),
+    SKU_MISMATCH(Integer.MAX_VALUE),
+    PROVIDER_REFERENCE_MISMATCH(Integer.MAX_VALUE),
+    UNKNOWN(Integer.MAX_VALUE),
     /** 阶段二留位: 汇率差, MVP 不参与判定。 */
     FX_RATE_DIFF(Integer.MAX_VALUE);
 

@@ -17,7 +17,7 @@ import java.util.Optional;
 public class JdbcReconConsoleQueryStore implements ReconConsoleQueryRepository {
 
     private static final String RUN_SELECT = """
-            SELECT r.run_id, r.scenario_code, r.accounting_period, r.sequence_no, r.status, r.bucket_count,
+            SELECT r.run_id, r.tenant_id, r.scenario_code, r.accounting_period, r.sequence_no, r.status, r.bucket_count,
                    r.created_at, r.started_at, r.finished_at,
                    (SELECT COUNT(*) FROM discrepancy d WHERE d.run_id = r.run_id) AS discrepancy_count,
                    (SELECT COUNT(*) FROM discrepancy d
@@ -34,7 +34,9 @@ public class JdbcReconConsoleQueryStore implements ReconConsoleQueryRepository {
             SELECT d.discrepancy_id, d.run_id, r.scenario_code, r.accounting_period, d.segment_id,
                    d.type, d.bridge_break_stage, d.fingerprint, d.group_key, d.match_key, d.currency,
                    d.expected_amount_minor, d.actual_amount_minor, d.delta_amount_minor,
-                   d.left_raw_ref, d.right_raw_ref,
+                   d.left_raw_ref, d.right_raw_ref, d.measure_kind, d.expected_quantity,
+                   d.internal_quantity, d.provider_quantity, d.expected_source_system,
+                   d.marketing_source_request_id, d.benefit_order_no,
                    COALESCE(dd.status, 'OPEN') AS disposition_status,
                    dd.operator, dd.note, dd.version AS disposition_version,
                    d.created_at, COALESCE(dd.updated_at, d.updated_at) AS updated_at
@@ -44,23 +46,57 @@ public class JdbcReconConsoleQueryStore implements ReconConsoleQueryRepository {
             """;
 
     private static final RowMapper<RunSummary> RUN_MAPPER = (rs, rowNum) -> new RunSummary(
-            rs.getString("run_id"), rs.getString("scenario_code"), rs.getString("accounting_period"),
+            rs.getString("run_id"), rs.getString("tenant_id"), rs.getString("scenario_code"), rs.getString("accounting_period"),
             rs.getInt("sequence_no"), rs.getString("status"), rs.getInt("bucket_count"),
             SqlTimes.instant(rs, "created_at"), SqlTimes.instant(rs, "started_at"),
             SqlTimes.instant(rs, "finished_at"), rs.getLong("discrepancy_count"),
             rs.getLong("open_discrepancy_count"), nullableBoolean(rs, "balanced"));
 
-    private static final RowMapper<DiscrepancySummary> DISCREPANCY_MAPPER = (rs, rowNum) ->
-            new DiscrepancySummary(
+    private static final RowMapper<DiscrepancySummary> DISCREPANCY_MAPPER = (rs, rowNum) -> {
+        String leftRawRef = rs.getString("left_raw_ref");
+        String rightRawRef = rs.getString("right_raw_ref");
+        return new DiscrepancySummary(
                     rs.getString("discrepancy_id"), rs.getString("run_id"), rs.getString("scenario_code"),
                     rs.getString("accounting_period"), rs.getString("segment_id"), rs.getString("type"),
                     rs.getString("bridge_break_stage"), rs.getString("fingerprint"), rs.getString("group_key"),
                     rs.getString("match_key"), rs.getString("currency"), rs.getString("expected_amount_minor"),
                     rs.getString("actual_amount_minor"), rs.getString("delta_amount_minor"),
-                    rs.getString("left_raw_ref"), rs.getString("right_raw_ref"),
+                    leftRawRef, rightRawRef,
+                    rs.getString("measure_kind"), nullableLongString(rs, "expected_quantity"),
+                    nullableLongString(rs, "internal_quantity"), nullableLongString(rs, "provider_quantity"),
+                    first(rs.getString("expected_source_system"), expectedSourceSystem(leftRawRef, rightRawRef)),
+                    first(rs.getString("marketing_source_request_id"),
+                            referenceValue("marketing-award-expected:", leftRawRef, rightRawRef)),
+                    first(rs.getString("benefit_order_no"),
+                            referenceValue("benefit-fulfillment:", leftRawRef, rightRawRef)),
                     rs.getString("disposition_status"), rs.getString("operator"), rs.getString("note"),
                     nullableInteger(rs, "disposition_version"), SqlTimes.instant(rs, "created_at"),
                     SqlTimes.instant(rs, "updated_at"));
+    };
+
+    private static String expectedSourceSystem(String... refs) {
+        return referenceValue("marketing-award-expected:", refs) == null ? null : "MARKETING";
+    }
+
+    /** raw_ref 只解析受控前缀，不依赖 SKU/时间近似匹配，避免错关联订单。 */
+    private static String referenceValue(String prefix, String... refs) {
+        for (String ref : refs) {
+            if (ref == null) continue;
+            for (String token : ref.split("\\|")) {
+                if (token.startsWith(prefix)) return token.substring(prefix.length());
+            }
+        }
+        return null;
+    }
+
+    private static String first(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private static String nullableLongString(ResultSet rs, String column) throws SQLException {
+        long value = rs.getLong(column);
+        return rs.wasNull() ? null : Long.toString(value);
+    }
 
     private final JdbcTemplate jdbc;
 
@@ -255,6 +291,30 @@ public class JdbcReconConsoleQueryStore implements ReconConsoleQueryRepository {
                 Long.toString(rs.getLong("signed_amount_minor")), rs.getString("entry_type"),
                 rs.getString("biz_status"), rs.getString("raw_ref")),
                 runId, segmentId, groupKey, limit);
+    }
+
+    @Override
+    public PageResult<RejectEntry> listRejects(RejectFilter filter) {
+        SqlFilter sqlFilter = new SqlFilter();
+        sqlFilter.eq("run_id", filter.runId());
+        sqlFilter.eq("segment_id", filter.segmentId());
+        sqlFilter.eq("source_role", filter.sourceRole());
+        long total = count("SELECT COUNT(*) FROM recon_record_reject" + sqlFilter.where(), sqlFilter.params());
+        List<Object> pageParams = new ArrayList<>(sqlFilter.params());
+        pageParams.add(filter.size());
+        pageParams.add(filter.page() * filter.size());
+        List<RejectEntry> rows = jdbc.query("""
+                SELECT id, run_id, segment_id, source_role, raw_ref, reason, raw_payload, created_at
+                  FROM recon_record_reject
+                """ + sqlFilter.where() + """
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT ? OFFSET ?
+                """, (rs, rowNum) -> new RejectEntry(
+                rs.getString("id"), rs.getString("run_id"), rs.getString("segment_id"),
+                rs.getString("source_role"), rs.getString("raw_ref"), rs.getString("reason"),
+                rs.getString("raw_payload"), SqlTimes.instant(rs, "created_at")),
+                pageParams.toArray());
+        return PageResult.of(rows, filter.page(), filter.size(), total);
     }
 
     private long count(String sql, List<Object> params) {

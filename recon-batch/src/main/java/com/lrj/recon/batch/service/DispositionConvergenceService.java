@@ -7,6 +7,7 @@ import com.lrj.recon.core.application.port.out.ReconRunRepository;
 import com.lrj.recon.core.domain.model.DiscrepancyAction;
 import com.lrj.recon.core.domain.model.DiscrepancyActionType;
 import com.lrj.recon.core.domain.model.DiscrepancyDisposition;
+import com.lrj.recon.core.domain.model.ReconRun;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -58,8 +59,10 @@ public class DispositionConvergenceService {
     public void converge(String runId, String scenarioCode, String accountingPeriod) {
         // 同账期多个 Run 的收敛先在既有 run 行上串行化，再判最新序号。若新 Run 已进入执行，旧 Run 即使先完成
         // 也必须跳过，防止把新视图仍存在的处置误标 STALE；锁还保证两个完成态 Run 不会交叉覆盖 last_seen_run_id。
-        runs.lockScenarioPeriod(scenarioCode, accountingPeriod);
-        if (!runs.isLatestRun(runId, scenarioCode, accountingPeriod)) {
+        ReconRun currentRun = runs.find(runId)
+                .orElseThrow(() -> new IllegalStateException("run disappeared during convergence: " + runId));
+        runs.lockScenarioPeriod(currentRun.tenantId(), scenarioCode, accountingPeriod);
+        if (!runs.isLatestRun(runId, currentRun.tenantId(), scenarioCode, accountingPeriod)) {
             log.info("[rerun-converge] skip non-latest run={} scenario={} period={}",
                     runId, scenarioCode, accountingPeriod);
             return;

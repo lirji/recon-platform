@@ -34,7 +34,7 @@ public class JdbcReconRunStore implements ReconRunRepository {
 
     private static final RowMapper<ReconRun> MAPPER = (rs, n) -> ReconRun.builder()
             .runId(rs.getString("run_id"))
-            .key(RunKey.of(rs.getString("scenario_code"), rs.getString("accounting_period"),
+            .key(RunKey.of(rs.getString("tenant_id"), rs.getString("scenario_code"), rs.getString("accounting_period"),
                     rs.getInt("sequence_no")))
             .cutoffTime(SqlTimes.instant(rs, "cutoff_time"))
             .matchWindowFrom(SqlTimes.instant(rs, "match_window_from"))
@@ -55,12 +55,12 @@ public class JdbcReconRunStore implements ReconRunRepository {
         Instant updatedAt = run.updatedAt() == null ? now : run.updatedAt();
         try {
             jdbc.update("""
-                    INSERT INTO recon_run(run_id, scenario_code, accounting_period, sequence_no,
+                    INSERT INTO recon_run(run_id, tenant_id, scenario_code, accounting_period, sequence_no,
                         cutoff_time, match_window_from, match_window_to, bucket_count, status, revision,
                         created_at, updated_at, started_at, finished_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,
-                    run.runId(), run.scenarioCode(), run.accountingPeriod(), run.sequenceNo(),
+                    run.runId(), run.tenantId(), run.scenarioCode(), run.accountingPeriod(), run.sequenceNo(),
                     SqlTimes.ts(run.cutoffTime()), SqlTimes.ts(run.matchWindowFrom()), SqlTimes.ts(run.matchWindowTo()),
                     run.bucketCount(), run.status().name(), run.revision(),
                     SqlTimes.ts(createdAt), SqlTimes.ts(updatedAt),
@@ -77,25 +77,35 @@ public class JdbcReconRunStore implements ReconRunRepository {
     }
 
     @Override
-    public void lockScenarioPeriod(String scenarioCode, String accountingPeriod) {
+    public void lockScenarioPeriod(String tenantId, String scenarioCode, String accountingPeriod) {
         // ORDER BY 保证并发收敛按相同行顺序加锁，避免死锁；结果只用于持有行锁至外层收敛事务提交。
         jdbc.queryForList("""
                 SELECT run_id FROM recon_run
-                 WHERE scenario_code = ? AND accounting_period = ?
+                 WHERE tenant_id = ? AND scenario_code = ? AND accounting_period = ?
                  ORDER BY sequence_no
                  FOR UPDATE
-                """, String.class, scenarioCode, accountingPeriod);
+                """, String.class, tenantId, scenarioCode, accountingPeriod);
+    }
+
+    @Override
+    public void lockScenarioPeriod(String scenarioCode, String accountingPeriod) {
+        lockScenarioPeriod(RunKey.LEGACY_TENANT, scenarioCode, accountingPeriod);
+    }
+
+    @Override
+    public boolean isLatestRun(String runId, String tenantId, String scenarioCode, String accountingPeriod) {
+        List<String> latest = jdbc.queryForList("""
+                SELECT run_id FROM recon_run
+                 WHERE tenant_id = ? AND scenario_code = ? AND accounting_period = ?
+                 ORDER BY sequence_no DESC
+                 LIMIT 1
+                """, String.class, tenantId, scenarioCode, accountingPeriod);
+        return !latest.isEmpty() && latest.get(0).equals(runId);
     }
 
     @Override
     public boolean isLatestRun(String runId, String scenarioCode, String accountingPeriod) {
-        List<String> latest = jdbc.queryForList("""
-                SELECT run_id FROM recon_run
-                 WHERE scenario_code = ? AND accounting_period = ?
-                 ORDER BY sequence_no DESC
-                 LIMIT 1
-                """, String.class, scenarioCode, accountingPeriod);
-        return !latest.isEmpty() && latest.get(0).equals(runId);
+        return isLatestRun(runId, RunKey.LEGACY_TENANT, scenarioCode, accountingPeriod);
     }
 
     @Override

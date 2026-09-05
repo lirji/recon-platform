@@ -103,6 +103,18 @@ describe('ScenarioEditorDrawer', () => {
     expect(mockedSave.mock.calls[0][1]).not.toContain('9007199254740992')
   })
 
+  it('keeps a large absToleranceMinor when edited from the structured form', async () => {
+    const user = userEvent.setup()
+    const big = '9007199254740993'
+    renderApp(<ScenarioEditorDrawer editing={{ mode: 'new', code: null }} existingCodes={[]} onClose={() => {}} />)
+    const abs = (await screen.findAllByLabelText('绝对容差'))[0]
+    fireEvent.change(abs, { target: { value: big } })
+    await user.click(screen.getByRole('button', { name: /保\s*存/ }))
+    await waitFor(() => expect(mockedSave).toHaveBeenCalled())
+    expect(mockedSave.mock.calls[0][1]).toContain(big)
+    expect(mockedSave.mock.calls[0][1]).not.toContain('9007199254740992')
+  })
+
   it('hides save and makes json read-only for a viewer', async () => {
     renderApp(
       <ScenarioEditorDrawer editing={{ mode: 'edit', code: 'S1' }} existingCodes={['S1']} onClose={() => {}} />,

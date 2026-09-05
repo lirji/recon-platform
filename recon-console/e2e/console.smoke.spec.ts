@@ -110,8 +110,108 @@ async function mockApi(page: Page) {
     if (url.pathname === `/recon/runs/${encodeURIComponent(run.runId)}/three-way`) {
       return json(threeWay)
     }
+    if (url.pathname === `/recon/runs/${encodeURIComponent(run.runId)}/refine-violations`) {
+      return json({ runId: run.runId, violationCount: 0, truncated: false, violations: [] })
+    }
+    if (url.pathname === `/recon/runs/${encodeURIComponent(run.runId)}/records`) {
+      return json({
+        runId: run.runId,
+        segmentId: url.searchParams.get('segmentId'),
+        groupKey: url.searchParams.get('groupKey'),
+        recordCount: 1,
+        truncated: false,
+        records: [
+          {
+            recordId: 'r-l1',
+            side: 'LEFT',
+            sourceRole: 'MARKETING',
+            matchKey: 'ISSUE-42',
+            currency: 'USD',
+            signedAmountMinor: '1000',
+            entryType: 'ISSUE',
+            bizStatus: 'PAID',
+            rawRef: 'marketing:42',
+          },
+        ],
+      })
+    }
+    if (url.pathname === `/recon/runs/${encodeURIComponent(run.runId)}/rejects`) {
+      return json({
+        content: [{
+          id: 'rj-1',
+          runId: run.runId,
+          segmentId: 'SEG1_MKT_ACCT',
+          sourceRole: 'MARKETING',
+          rawRef: '/tmp/mkt.csv:12',
+          reason: 'invalid amount',
+          rawPayload: 'bad,row',
+          createdAt: '2026-08-18T10:00:00Z',
+        }],
+        page: 0,
+        size: 20,
+        totalElements: 1,
+        totalPages: 1,
+      })
+    }
     if (url.pathname === `/recon/runs/${encodeURIComponent(run.runId)}`) {
-      return json({ run, reports: [] })
+      return json({ run, reports: [segReport('SEG1_MKT_ACCT'), segReport('SEG2_ACCT_CHANNEL')] })
+    }
+    if (url.pathname === '/recon/benefit-remediations' && request.method() === 'GET') {
+      return json({
+        content: [{
+          tenantId: 'recon-platform',
+          suggestionId: 'sug-1',
+          scenarioCode: 'ENTITLEMENT_FULFILLMENT',
+          discrepancyRef: 'disc-1',
+          awardItemNo: 'ITEM-1',
+          originalOperationNo: 'OP-1',
+          action: 'REISSUE',
+          reason: 'provider proves not issued',
+          status: 'PROPOSED',
+          approvalRef: null,
+          version: 0,
+          createdAt: '2026-08-21T00:00:00Z',
+          updatedAt: '2026-08-21T00:00:00Z',
+        }],
+        page: 0,
+        size: 20,
+        totalElements: 1,
+        totalPages: 1,
+      })
+    }
+    if (url.pathname === '/recon/benefit-remediations' && request.method() === 'POST') {
+      return json({
+        tenantId: 'recon-platform',
+        suggestionId: 'sug-new',
+        scenarioCode: 'ENTITLEMENT_FULFILLMENT',
+        discrepancyRef: 'disc-1',
+        awardItemNo: 'ITEM-1',
+        originalOperationNo: null,
+        action: 'MANUAL_REVIEW',
+        reason: 'need review',
+        status: 'PROPOSED',
+        approvalRef: null,
+        version: 0,
+        createdAt: '2026-08-21T00:00:00Z',
+        updatedAt: '2026-08-21T00:00:00Z',
+      })
+    }
+    if (url.pathname.startsWith('/recon/benefit-remediations/') && url.pathname.endsWith('/approve') && request.method() === 'POST') {
+      return json({
+        tenantId: 'recon-platform',
+        suggestionId: 'sug-1',
+        scenarioCode: 'ENTITLEMENT_FULFILLMENT',
+        discrepancyRef: 'disc-1',
+        awardItemNo: 'ITEM-1',
+        originalOperationNo: 'OP-1',
+        action: 'REISSUE',
+        reason: 'provider proves not issued',
+        status: 'APPROVED',
+        approvalRef: 'APPROVAL-1',
+        version: 1,
+        createdAt: '2026-08-21T00:00:00Z',
+        updatedAt: '2026-08-21T00:00:00Z',
+      })
     }
     if (url.pathname === '/recon/scenarios' && request.method() === 'GET') {
       return json([{ code: 'MARKETING_3WAY', version: 3, enabled: true, segmentCount: 2 }])
@@ -136,6 +236,9 @@ async function mockApi(page: Page) {
     }
     if (url.pathname.startsWith('/recon/reversal-approvals/') && url.pathname.endsWith('/decide') && request.method() === 'POST') {
       return route.fulfill({ status: 200, contentType: 'application/json', body: '' })
+    }
+    if (url.pathname.includes('/recon/reversal-executions/') && url.pathname.endsWith('/execute') && request.method() === 'POST') {
+      return json({ reversalId: 'rev-1', status: 'EXECUTED', executed: true, reference: 'REF-1' })
     }
     return route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"not_found","message":"mock route missing"}' })
   })
@@ -183,6 +286,8 @@ test('operator can open the three-way roll-up and drill into a bridge break', as
   await page.getByRole('tab', { name: '三方合并' }).click()
   await expect(page.getByText('三方不一致')).toBeVisible()
   await expect(page.getByRole('link', { name: '查看桥断差异' })).toBeVisible()
+  await page.getByRole('link', { name: '查看桥断差异' }).click()
+  await expect(page.getByRole('heading', { name: '差异处理' })).toBeVisible()
 })
 
 test('operator can approve a pending reversal with a required note', async ({ page }) => {
@@ -202,6 +307,30 @@ test('operator can approve a pending reversal with a required note', async ({ pa
   await page.getByRole('button', { name: /确认通过/ }).click()
   await decideReq
   await expect(page.getByText('已通过审批')).toBeVisible()
+})
+
+test('operator can inspect CSV reject rows on a run', async ({ page }) => {
+  await mockApi(page)
+  await page.goto('/runs')
+  await page.getByText(run.runId).first().click()
+  await expect(page.getByText('运行信息')).toBeVisible()
+  await page.getByRole('tab', { name: '拒绝行' }).click()
+  await expect(page.getByText('invalid amount')).toBeVisible()
+  await expect(page.getByText('/tmp/mkt.csv:12')).toBeVisible()
+})
+
+test('operator can list and approve a benefit remediation', async ({ page }) => {
+  await mockApi(page)
+  await page.goto('/dashboard')
+  await navigateByMenu(page, '权益补救')
+  await expect(page.getByRole('heading', { name: '权益补救' })).toBeVisible()
+  await expect(page.getByText('sug-1').first()).toBeVisible()
+  await page.getByRole('button', { name: /批准/ }).first().click()
+  await page.getByLabel('审批引用').fill('APPROVAL-1')
+  const approveReq = page.waitForRequest((r) => r.url().includes('/recon/benefit-remediations/') && r.url().includes('/approve') && r.method() === 'POST')
+  await page.getByRole('button', { name: /确认批准/ }).click()
+  await approveReq
+  await expect(page.getByText('已批准补救建议')).toBeVisible()
 })
 
 test('admin can view and edit a config-driven scenario (raw-text submit preserves large numbers)', async ({ page }) => {

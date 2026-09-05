@@ -59,6 +59,17 @@ public class ReconConsoleController {
         return queries.groupRecords(runId, segmentId, groupKey);
     }
 
+    /** 载入期拒绝行(CSV/DB 标准化失败但不中断整流),分页只读(recon.read)。 */
+    @GetMapping("/runs/{id}/rejects")
+    public ReconConsoleQueryRepository.PageResult<ReconConsoleQueryRepository.RejectEntry> rejects(
+            @PathVariable("id") String runId,
+            @RequestParam(required = false) String segmentId,
+            @RequestParam(required = false) String sourceRole,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        return queries.listRejects(runId, segmentId, sourceRole, page, size);
+    }
+
     @GetMapping("/discrepancies")
     public ReconConsoleQueryRepository.PageResult<ReconConsoleQueryRepository.DiscrepancySummary> discrepancies(
             @RequestParam(required = false) String runId,

@@ -103,4 +103,15 @@ class ReversalExecutionServiceTest {
         assertThatThrownBy(() -> service.execute("r4", "bob")).isInstanceOf(IllegalStateException.class);
         assertThat(statusOf("r4")).isEqualTo("EXECUTION_FAILED");
     }
+
+    @Test
+    void retries_an_execution_failed_reversal() {
+        seed("r5", "EXECUTION_FAILED");
+        ReversalExecutionService.Result res = service.execute("r5", "alice");
+
+        assertThat(res.executed()).isTrue();
+        assertThat(res.status()).isEqualTo(ReversalStatus.EXECUTED);
+        assertThat(statusOf("r5")).isEqualTo("EXECUTED");
+        verify(executor, times(1)).execute(any());
+    }
 }

@@ -68,12 +68,26 @@ final class KeysetRecordCursor implements RecordCursor {
 
     private void fetchNextPage() {
         boolean firstPage = (lastId == null);
+        List<String> predicates = new ArrayList<>();
+        List<Object> parameters = new ArrayList<>();
+        if (cfg.tenantColumn != null) {
+            predicates.add(cfg.tenantColumn + " = ?");
+            parameters.add(ctx.tenantId());
+        }
+        if (cfg.windowTimeColumn != null) {
+            predicates.add(cfg.windowTimeColumn + " >= ? AND " + cfg.windowTimeColumn + " <= ?");
+            parameters.add(Timestamp.from(ctx.windowFrom()));
+            parameters.add(Timestamp.from(ctx.windowTo()));
+        }
+        if (!firstPage) {
+            predicates.add(cfg.idColumn + " > ?");
+            parameters.add(lastId);
+        }
         String sql = "SELECT * FROM " + cfg.table
-                + (firstPage ? "" : " WHERE " + cfg.idColumn + " > ?")
+                + (predicates.isEmpty() ? "" : " WHERE " + String.join(" AND ", predicates))
                 + " ORDER BY " + cfg.idColumn + " ASC LIMIT ?";
-        List<Row> rows = firstPage
-                ? jdbc.query(sql, mapper, cfg.pageSize)
-                : jdbc.query(sql, mapper, lastId, cfg.pageSize);
+        parameters.add(cfg.pageSize);
+        List<Row> rows = jdbc.query(sql, mapper, parameters.toArray());
         this.page = rows;
         this.index = 0;
         if (rows.size() < cfg.pageSize) {
@@ -86,7 +100,8 @@ final class KeysetRecordCursor implements RecordCursor {
 
     private Row mapRow(ResultSet rs, int rowNum) throws SQLException {
         Object id = rs.getObject(cfg.idColumn);
-        String rawRef = cfg.table + ":" + id;
+        String sourceRawRef = cfg.rawRefColumn == null ? null : rs.getString(cfg.rawRefColumn);
+        String rawRef = sourceRawRef == null || sourceRawRef.isBlank() ? cfg.table + ":" + id : sourceRawRef;
         // record_id 全局唯一键: 同一源行会被多个 (segment, side) 读取 (spine 账务两读: SEG1 右 / SEG2 左),
         // 若直接用 rawRef=table:pk 作主键会撞 recon_record PK。故 record_id 加 (run, segment, side) 前缀唯一化;
         // rawRef (血缘 table:pk) 保持不变。

@@ -2,6 +2,7 @@ package com.lrj.recon.batch.web;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lrj.recon.batch.config.ScenarioDefinitionSeeder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +33,7 @@ class DiscrepancyControllerTest {
 
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
+    @Autowired ScenarioDefinitionSeeder scenarioSeeder;
     private final ObjectMapper json = new ObjectMapper();
 
     private static final String SCENARIO = "MARKETING_3WAY";
@@ -40,6 +42,8 @@ class DiscrepancyControllerTest {
 
     @BeforeEach
     void reset() {
+        // 其它共享 Spring 上下文测试会清理场景表；本用例显式恢复内置定义，消除执行顺序依赖。
+        scenarioSeeder.run(null);
         for (String t : List.of("recon_src_marketing", "recon_src_accounting", "recon_src_channel")) {
             jdbc.execute("DROP TABLE IF EXISTS " + t);
         }
@@ -68,6 +72,9 @@ class DiscrepancyControllerTest {
             jdbc.update("DELETE FROM " + t);
         }
         for (String t : List.of("recon_src_marketing", "recon_src_accounting", "recon_src_channel",
+                "recon_ods_cash_expected", "recon_ods_cash_accounting", "recon_ods_cash_channel",
+                "recon_ods_entitlement_expected", "recon_ods_entitlement_internal",
+                "recon_ods_entitlement_provider",
                 "recon_record", "recon_record_reject", "discrepancy", "discrepancy_disposition",
                 "reversal_suggestion", "discrepancy_action", "alert_outbox", "recon_report",
                 "recon_report_partial", "recon_run", "recon_run_seq")) {
@@ -105,6 +112,89 @@ class DiscrepancyControllerTest {
                 .andExpect(jsonPath("$.status").value("COMPLETED"))
                 .andExpect(jsonPath("$.balanced").value(true))
                 .andExpect(jsonPath("$.reports.length()").value(2)); // SEG1 USD + SEG2 USD
+    }
+
+    @Test
+    void benefitCashRunRequiresTenantAndNeverScansAnotherTenant() throws Exception {
+        mvc.perform(post("/recon/runs").contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"scenarioCode":"BENEFIT_CASH_3WAY","accountingPeriod":"%s"}
+                                """.formatted(PERIOD)))
+                .andExpect(status().isBadRequest());
+
+        insertCash("recon_ods_cash_expected", "tenant-a", "E-A", "REQ-A", "CLIENT-A", null, 500L,
+                "marketing-award-expected:REQ-A");
+        insertCash("recon_ods_cash_accounting", "tenant-a", "A-A", "REQ-A", "CLIENT-A", "SER-A", 500L,
+                "benefit-fulfillment:BO-A|marketing-award-expected:REQ-A");
+        insertCash("recon_ods_cash_channel", "tenant-a", "C-A", "REQ-A", "CLIENT-A", "SER-A", 500L,
+                "benefit-fulfillment:BO-A|marketing-award-expected:REQ-A");
+        // 同租户再放一组真实差异，用来验证现金通用引擎也能回传三项关联字段。
+        insertCash("recon_ods_cash_expected", "tenant-a", "E-C", "REQ-C", "CLIENT-C", null, 500L,
+                "marketing-award-expected:REQ-C");
+        insertCash("recon_ods_cash_accounting", "tenant-a", "A-C", "REQ-C", "CLIENT-C", "SER-C", 400L,
+                "benefit-fulfillment:BO-C|marketing-award-expected:REQ-C");
+        insertCash("recon_ods_cash_channel", "tenant-a", "C-C", "REQ-C", "CLIENT-C", "SER-C", 400L,
+                "benefit-fulfillment:BO-C|marketing-award-expected:REQ-C");
+        // 另一租户只有应发；若 reader 全租户扫描，本 Run 会产生 MISSING 并失衡。
+        insertCash("recon_ods_cash_expected", "tenant-b", "E-B", "REQ-B", "CLIENT-B", null, 900L,
+                "marketing-award-expected:REQ-B");
+
+        MvcResult launched = mvc.perform(post("/recon/runs").contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"scenarioCode":"BENEFIT_CASH_3WAY","accountingPeriod":"%s","tenantId":"tenant-a"}
+                                """.formatted(PERIOD)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tenantId").value("tenant-a"))
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andReturn();
+        String runId = json.readTree(launched.getResponse().getContentAsString()).path("runId").asText();
+
+        mvc.perform(get("/recon/runs/{id}/report", runId))
+                .andExpect(status().isOk())
+                // balanced 是守恒等式，不等价于“零差异”；下面单独断言唯一业务差异。
+                .andExpect(jsonPath("$.balanced").value(true));
+        mvc.perform(get("/recon/discrepancies").param("runId", runId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].expectedSourceSystem").value("MARKETING"))
+                .andExpect(jsonPath("$.content[0].marketingSourceRequestId").value("REQ-C"))
+                .andExpect(jsonPath("$.content[0].benefitOrderNo").value("BO-C"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM recon_record WHERE run_id=?", Integer.class, runId))
+                .isEqualTo(8); // 两组各三条事实，accounting 作为 spine 在两段各读一次
+    }
+
+    @Test
+    void nonCashRunUsesQuantityModelAndPublishesCorrelationFields() throws Exception {
+        insertEntitlement("recon_ods_entitlement_expected", "tenant-a", "E-1", "CLIENT-1",
+                "EXPECTED", "marketing-award-expected:REQ-1", "MARKETING", "REQ-1", null);
+        insertEntitlement("recon_ods_entitlement_internal", "tenant-a", "I-1", "CLIENT-1",
+                "ISSUED", "benefit-fulfillment:BO-1", null, "REQ-1", "BO-1");
+        // tenant-b 的 provider 不得补齐 tenant-a 的缺失。
+        insertEntitlement("recon_ods_entitlement_provider", "tenant-b", "P-OTHER", "CLIENT-1",
+                "ISSUED", "benefit-fulfillment:BO-OTHER", null, "REQ-OTHER", "BO-OTHER");
+
+        MvcResult launched = mvc.perform(post("/recon/runs").contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"scenarioCode":"ENTITLEMENT_FULFILLMENT","accountingPeriod":"%s","tenantId":"tenant-a"}
+                                """.formatted(PERIOD)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andReturn();
+        String runId = json.readTree(launched.getResponse().getContentAsString()).path("runId").asText();
+        // JobExecution 完成与业务 Run 判差状态是两个维度。
+        assertThat(jdbc.queryForObject("SELECT status FROM recon_run WHERE run_id=?", String.class, runId))
+                .isEqualTo("REPORT_IMBALANCE");
+
+        mvc.perform(get("/recon/discrepancies").param("runId", runId).param("type", "MISSING_PROVIDER"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].measureKind").value("QUANTITY"))
+                .andExpect(jsonPath("$.content[0].expectedQuantity").value("1"))
+                .andExpect(jsonPath("$.content[0].internalQuantity").value("1"))
+                .andExpect(jsonPath("$.content[0].providerQuantity").value("0"))
+                .andExpect(jsonPath("$.content[0].expectedSourceSystem").value("MARKETING"))
+                .andExpect(jsonPath("$.content[0].marketingSourceRequestId").value("REQ-1"))
+                .andExpect(jsonPath("$.content[0].benefitOrderNo").value("BO-1"));
     }
 
     @Test
@@ -239,6 +329,27 @@ class DiscrepancyControllerTest {
     void rerunUnknownRunReturns404() throws Exception {
         mvc.perform(post("/recon/runs/{id}/rerun", "nope"))
                 .andExpect(status().isNotFound());
+    }
+
+    private void insertCash(String table, String tenantId, String eventId, String orderNo,
+                            String issueId, String channelSerialNo, long amountMinor, String rawRef) {
+        Timestamp time = Timestamp.from(BIZ);
+        jdbc.update("INSERT INTO " + table + " (tenant_id,id,event_id,issue_id,order_no,channel_serial_no,"
+                        + "ccy,amount_minor,entry_type,biz_status,biz_time,posting_time,raw_ref,created_at) "
+                        + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                tenantId, eventId, eventId, issueId, orderNo, channelSerialNo, "USD", amountMinor, "ISSUE",
+                "ISSUED", time, time, rawRef, time);
+    }
+
+    private void insertEntitlement(String table, String tenantId, String eventId, String issueId,
+                                   String fulfillmentStatus, String rawRef, String expectedSourceSystem,
+                                   String sourceRequestId, String benefitOrderNo) {
+        Timestamp time = Timestamp.from(BIZ);
+        jdbc.update("INSERT INTO " + table + " (tenant_id,id,event_id,issue_id,sku_id,quantity,"
+                        + "fulfillment_status,occurred_at,raw_ref,created_at,expected_source_system,"
+                        + "marketing_source_request_id,benefit_order_no) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                tenantId, eventId, eventId, issueId, "COUPON-1", 1L, fulfillmentStatus, time, rawRef, time,
+                expectedSourceSystem, sourceRequestId, benefitOrderNo);
     }
 
     /** seed 一个 COMPLETED run + 一条 AMOUNT_MISMATCH 差异 (免跑 Job), 返回 discrepancy_id。 */

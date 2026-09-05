@@ -111,6 +111,9 @@ export interface DiscrepancySummary {
   deltaAmountMinor: string
   leftRawRef: string | null
   rightRawRef: string | null
+  expectedSourceSystem?: string | null
+  marketingSourceRequestId?: string | null
+  benefitOrderNo?: string | null
   dispositionStatus: string
   operator: string | null
   note: string | null
@@ -274,4 +277,114 @@ export interface ScenarioView {
   version: number
   enabled: boolean
   definition: ScenarioDefinition
+}
+
+/** KI-6 函数性 refine 违规:同一 (segment, match_key) 映射多个 group_key。 */
+export interface RefineViolation {
+  segmentId: string
+  matchKey: string
+  distinctGroupCount: number
+}
+
+export interface RefineViolationReport {
+  runId: string
+  violationCount: number
+  truncated: boolean
+  violations: RefineViolation[]
+}
+
+/** B7 组内一条 staged 记录。金额十进制字符串,禁转 number。 */
+export interface GroupRecordDetail {
+  recordId: string
+  side: string
+  sourceRole: string
+  matchKey: string | null
+  currency: string | null
+  signedAmountMinor: string
+  entryType: string | null
+  bizStatus: string | null
+  rawRef: string | null
+}
+
+export interface GroupRecordReport {
+  runId: string
+  segmentId: string
+  groupKey: string
+  recordCount: number
+  truncated: boolean
+  records: GroupRecordDetail[]
+}
+
+export interface ReversalExecutionResult {
+  reversalId: string
+  status: string
+  executed: boolean
+  reference: string
+}
+
+/** 载入期拒绝行(CSV/DB 标准化失败)。 */
+export interface RejectEntry {
+  id: string
+  runId: string | null
+  segmentId: string | null
+  sourceRole: string | null
+  rawRef: string | null
+  reason: string | null
+  rawPayload: string | null
+  createdAt: string
+}
+
+export interface RejectFilters {
+  segmentId?: string
+  sourceRole?: string
+  page?: number
+  size?: number
+}
+
+export type RemediationAction = 'REISSUE' | 'REVERSE' | 'MANUAL_REVIEW'
+export type RemediationStatus =
+  | 'PROPOSED'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'DISPATCHING'
+  | 'SUCCEEDED'
+  | 'FAILED'
+  | 'UNKNOWN'
+
+export interface RemediationView {
+  tenantId: string
+  suggestionId: string
+  scenarioCode: string
+  discrepancyRef: string
+  awardItemNo: string
+  originalOperationNo: string | null
+  action: string
+  reason: string
+  status: string
+  approvalRef: string | null
+  version: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface RemediationFilters {
+  tenantId: string
+  status?: string
+  page?: number
+  size?: number
+}
+
+export interface ProposeRemediationRequest {
+  tenantId: string
+  scenarioCode: string
+  discrepancyRef: string
+  awardItemNo: string
+  originalOperationNo?: string
+  action: RemediationAction
+  reason: string
+}
+
+export interface RemediationDecision {
+  tenantId: string
+  approvalRef: string
 }
