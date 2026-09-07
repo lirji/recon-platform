@@ -3,20 +3,20 @@
 # 一键部署 recon-platform 前后端 Docker 容器。
 #
 # 后端 recon-batch(Spring Boot 组合根)+ 前端 recon-console(React/Vite → nginx)。
-# 默认起真实 MySQL 8 持久化库(compose.yml + compose.mysql.yml);--h2 退回 H2 file 快速模式。
+# 默认复用 dev-infra MySQL 8.4/Kafka 3.8(compose.yml + compose.mysql.yml);--h2 退回 H2 file 快速模式。
 # 默认 profile 走 DevSecurityConfig(permitAll),无需 Casdoor,可直接验证。
 #
 # 用法:
-#   ./deploy.sh                 启动(默认 MySQL 8 持久化库)= ./deploy.sh up
+#   ./deploy.sh                 启动(默认 dev-infra MySQL 8.4)= ./deploy.sh up
 #   ./deploy.sh --h2            启动(H2 file 库,快速验证,无 DB 容器)
-#   ./deploy.sh --mysql         启动 MySQL 8(与默认等价,显式别名)
+#   ./deploy.sh --mysql         启动 dev-infra MySQL 8.4(与默认等价,显式别名)
 #   ./deploy.sh --secure        启动并启用 Casdoor 统一登录(后端 secure + 前端 oidc,走登录页)
 #   ./deploy.sh up --no-build   启动但不重建镜像(用已有镜像)
 #   ./deploy.sh status          查看容器与健康状态
-#   ./deploy.sh logs [服务]     跟随日志(可选 backend/console/db)
+#   ./deploy.sh logs [服务]     跟随日志(可选 backend/console)
 #   ./deploy.sh restart         重启容器(不重建)
 #   ./deploy.sh down            停止并移除容器(保留数据卷)
-#   ./deploy.sh down --purge    停止并删除容器 + 数据卷(清库)
+#   ./deploy.sh down --purge    停止并删除项目容器 + H2 卷(不会删除 dev-infra 数据)
 #
 set -euo pipefail
 
@@ -60,7 +60,7 @@ for arg in "$@"; do
     --no-build) NO_BUILD=1 ;;
     --purge)    PURGE=1 ;;
     -h|--help)  awk 'NR>1 && /^set -euo/{exit} NR>1{print}' "$0"; exit 0 ;;
-    backend|console|db) LOG_SVC="$arg" ;;
+    backend|console) LOG_SVC="$arg" ;;
     *) die "未知参数: $arg(用 -h 看用法)" ;;
   esac
 done
@@ -104,7 +104,7 @@ print_access() {
   if [[ $USE_H2 -eq 1 ]]; then
     printf '  %s数据库%s      H2 file(容器内 /data/recon,持久化于卷 recon-platform-data)\n' "$C_DIM" "$C_RESET"
   else
-    printf '  %sMySQL 8%s     127.0.0.1:23306  (库 recon / 用户 recon / 密码 recon,持久化于卷 recon-platform-mysql-data)\n' "$C_DIM" "$C_RESET"
+    printf '  %sMySQL 8.4%s   127.0.0.1:43306/%s  (复用 dev-infra,账号见本地 .env)\n' "$C_DIM" "$C_RESET" "${RECON_DB_NAME:-recon}"
   fi
   if [[ $USE_SECURE -eq 1 ]]; then
     printf '  %s认证%s        Casdoor 统一登录(%s);登录用户 %s\n' "$C_DIM" "$C_RESET" "$SECURE_CASDOOR_URL" "$SECURE_LOGIN_USER"
@@ -141,6 +141,11 @@ preflight
 
 case "$CMD" in
   up)
+    if [[ $USE_H2 -eq 0 ]]; then
+      info "准备 dev-infra MySQL/Kafka、项目 schema 与 Topic…"
+      [[ -x "${ROOT_DIR}/bootstrap-dev-infra.sh" ]] || die "bootstrap-dev-infra.sh 不可执行。"
+      "${ROOT_DIR}/bootstrap-dev-infra.sh"
+    fi
     UP_ARGS=(up -d --remove-orphans --wait --wait-timeout "$WAIT_TIMEOUT")
     if [[ $NO_BUILD -eq 0 ]]; then
       UP_ARGS+=(--build)
@@ -151,7 +156,7 @@ case "$CMD" in
     if [[ $USE_H2 -eq 1 ]]; then
       info "数据库:H2 file 快速模式(无 DB 容器,持久化于卷 recon-platform-data)。"
     else
-      info "数据库:真实 MySQL 8 持久化库(compose.mysql.yml,持久化于卷 recon-platform-mysql-data)。"
+      info "数据库:dev-infra 共享 MySQL 8.4(独立 schema ${RECON_DB_NAME:-recon})。"
     fi
     if [[ $USE_SECURE -eq 1 ]]; then
       info "认证:Casdoor 统一登录(secure profile + 前端 oidc);需 auth-platform 的 Casdoor 在 ${SECURE_CASDOOR_URL} 运行。"
@@ -169,7 +174,7 @@ case "$CMD" in
     ;;
   down)
     if [[ $PURGE -eq 1 ]]; then
-      warn "停止容器并删除数据卷(清库)…"
+      warn "停止项目容器并删除项目 H2 卷；dev-infra 数据库和共享中间件不会删除…"
       compose down -v --remove-orphans
     else
       info "停止并移除容器(保留数据卷)…"

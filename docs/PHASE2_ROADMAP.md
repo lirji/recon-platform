@@ -4,7 +4,7 @@
 >
 > 口径来源:`docs/design/RECON_MVP_DESIGN.md` §1 Non-goals · §13 取舍 · §14 口径决议;`docs/KNOWN_ISSUES.md`。
 > 可视化版本:见本仓库交付记录中的 Artifact 链接(私有,可分享)。
-> 最后更新:2026-08-18。
+> 最后更新:2026-09-06。下文保留“原现状”用于解释取舍，完成状态以当前代码和各项“已交付/诚实边界”为准。
 
 ## 优先级与工作量图例
 
@@ -23,11 +23,11 @@
 
 > 上线硬门槛,与功能多少无关。原则上优先于 Track B 的高价值项,因为 A1 是它们的前置。
 
-### A1 · 认证与鉴权 — P0(阻断)· 工作量 L
+### A1 · 认证与鉴权 — P0(阻断)· 工作量 L — ✅ 已完成
 
-- **现状**:后端零 Spring Security;`operator` 靠前端 `sessionStorage` 手填,完全不可信。
-- **要做**:后端加 Spring Security + 登录;`operator` 改从**可信身份上下文**获取,不再信任请求体;角色分离 viewer / operator / admin;前端登录页替换手填操作人。
-- **依赖**:无前置 —— **它本身是 B3 / B5 的硬前置**;触及全部写接口(launch / rerun / resolve / close)与 DTO 的 operator 字段。
+- **原现状**:后端零 Spring Security;`operator` 靠前端 `sessionStorage` 手填,完全不可信。
+- **已交付**:secure profile 使用 Casdoor OIDC/JWT resource server，校验 issuer、audience、owner 与 `sub`，再把 `permissions` 映射为 `recon.read` / `recon.dispose` / `recon.launch`。前端使用授权码 + PKCE；处置人由后端从可信 JWT claim 派生并忽略请求体同名字段。dev profile 保留 permitAll 与请求体 operator 回退，仅用于本地开发。
+- **依赖**:无前置；它作为 B3 / B5 的硬前置已经满足。共享测试和生产环境必须使用 secure profile，不能暴露 dev 免认证模式。
 
 ### A2 · 生产级 AlertDispatcher — P1 · 工作量 S — ✅ 已完成(2026-08-19)
 
@@ -106,8 +106,7 @@
   - **Phase 3a ✅ 种子入库**:`MarketingThreeWayDefinition.seed()` + `ScenarioDefinitionSeeder`(启动幂等 seed);「场景=数据」在管理层成立,未改发起路径。
   - **Phase 3b ✅ 通用执行引擎(XL 核心)**:`ConfigScenarioService` + 动态 `genericReconJob`(`GenericReconJobConfig` + `SegmentStampListener`,每 run 按 scenarioCode 从配置装配)+ `ReconLaunchService` 路由(内置→硬编码 job;配置场景→通用引擎;未知 fail-fast)。**`NewScenarioConfigDrivenTest` 证明 Java 零硬编码场景码 `MKT_3WAY_V2` 纯配置端到端跑通**;`GenericReconJobParityTest` 证明通用引擎 ≡ 硬编码。仅剩形态限制(固定 2 段)。
   - **Phase 4 ✅ 后端 API + 管理 UI**:后端 `ScenarioAdminController`(list/get/put,读 recon.read / 写 recon.launch,装配校验);前端 recon-console「场景管理」页(`/scenarios` 列表 + `ScenarioEditorDrawer` 编辑抽屉,JSON `Input.TextArea` + **原始文本提交**根治金额精度、写操作 `can('recon.launch')` 门控)。经 frontend-plan 全流程(五路子代理→决策记录→计划→独立评审→用户批准),计划见 `docs/plans/b4-scenario-ui-0819-1243/`。pnpm test 25/25 + build + e2e 6/6(双视口)。
-  - **Phase 4 ⏳ 管理 UI**:场景 CRUD 页(走 frontend-plan,权限 `recon.admin`)。
-- **依赖**:受益于 B2(规则,已完成)+ A1(角色,已完成)+ 管理 UI。
+- **依赖**:B2 规则、A1 权限与管理 UI 均已完成；当前写权限实际使用 `recon.launch`，不是历史规划中的 `recon.admin`。
 
 ### B5 · Flowable 工单落地 — P2 · 工作量 M–L — ✅ 已完成(2026-08-19)
 
@@ -166,7 +165,7 @@
 
 ## 关键跨 Track 硬依赖
 
-**A1 鉴权是 B3(自动冲正)与 B5(工单审批)的硬前置。** 资金动作与审批必须绑定可信身份和权限——「谁批的这笔钱」没有 auth 就无从谈起。即便按功能价值 B3 很诱人,也必须等 A1 落地才能启动。
+**A1 鉴权是 B3(自动冲正)与 B5(工单审批)的硬前置，当前三项均已落地。** 这条依赖仍是运行约束：资金动作与审批必须绑定可信身份和权限，生产不能退回 dev 免认证模式。
 
 ```
 A1 认证鉴权 ─────▶ B5 工单审批 ─────▶ B3 自动冲正执行
@@ -174,7 +173,7 @@ A1 认证鉴权 ─────▶ B5 工单审批 ─────▶ B3 自动�
 
 ---
 
-## 推荐执行顺序(综合价值与依赖)
+## 已采用的执行顺序(综合价值与依赖)
 
 1. **铺地基** — A1 鉴权(阻断项 + 最高价值前置)
 2. **并行加固** — A2 dispatcher + A3 真库 + A4 可观测性(可并行)
@@ -185,12 +184,12 @@ A1 认证鉴权 ─────▶ B5 工单审批 ─────▶ B3 自动�
 
 ---
 
-## 现状核实 · 基于当前仓库(2026-08-18)
+## 现状核实 · 基于当前仓库(2026-09-06)
 
 | 类别 | 事实 |
 |---|---|
-| 鉴权 | 后端零 Spring Security;operator 来自前端 `sessionStorage` 手填 |
+| 鉴权 | secure profile 已接 Casdoor JWT/权限矩阵，operator 从 token 派生；dev profile 才允许免认证与请求体回退 |
 | 告警 | **A2 已补** `WebhookAlertDispatcher`(配 `RECON_ALERT_WEBHOOK_URL` 即 `@Primary` 生效,发外部 HTTP);未配则 `LoggingAlertDispatcher` 兜底 |
-| 部署 | 基座 `compose.yml` 后端跑 H2 file;**A3 已补** `compose.mysql.yml` 叠加层(真 MySQL 8 端到端)+ PG 驱动提为 runtime,真库端到端经 `RealDbEndToEndIT` 验证 |
+| 部署 | 基座 `compose.yml` 可跑 H2 file；默认 `deploy.sh` 叠加 `compose.mysql.yml` 复用 `dev_infra` MySQL 8.4/Kafka 3.8，PG 驱动已是 runtime，真库端到端经 `RealDbEndToEndIT` 验证 |
 | 监控 | **A4 已补** actuator(health/liveness/readiness)+ Micrometer→Prometheus(`recon_job_failures_total`/`recon_job_duration` + `spring_batch_job_*`)+ 结构化日志(secure=JSON) |
 | 已交付 | M0–M6 全链路 + 前端 Console MVP + M7 本地 Docker 编排 + CI(`ci.yml`) |

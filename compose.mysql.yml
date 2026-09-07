@@ -1,49 +1,37 @@
-# A3 生产 DB 叠加层: 后端改跑真实 MySQL 8 (替代默认 compose.yml 的 H2 file), 提供真库端到端本地部署。
+# dev-infra MySQL 8.4 叠加层：复用共享数据库与 Kafka，不再为本项目创建重复中间件容器。
 #
-# 用法 (叠加在基座 compose.yml 之上):
-#   docker compose -f compose.yml -f compose.mysql.yml up -d --build --remove-orphans
-#   docker compose -f compose.yml -f compose.mysql.yml ps
+# 首次接入：
+#   cp .env.example .env
+#   # 修改 RECON_DB_PASSWORD 后执行：
+#   ./bootstrap-dev-infra.sh
 #
-# 后端启动时 Flyway 自动迁移 V1 领域 schema + V2 方言 batch 元数据(MySQL 表式序列 BATCH_*_SEQ)
-# + V3 match_key collation(utf8mb4_bin)。切 PostgreSQL 见 README「生产 DB」小节(改 DB_URL + PG 服务)。
+# 启动：
+#   ./compose.sh -f compose.yml -f compose.mysql.yml up -d --build --remove-orphans
+#
+# 数据库和账号由 bootstrap-dev-infra.sh 幂等创建。跨 Compose 服务不能使用 depends_on，
+# 后端依靠 Hikari/Spring Boot 启动失败与 restart: unless-stopped 处理共享服务尚未就绪的情况。
 name: recon-platform
 
 services:
-  db:
-    image: mysql:8.0
-    container_name: recon-platform-mysql
-    restart: unless-stopped
-    # utf8mb4 全库默认;match_key 列 collation 由 Flyway V3 pin 为 utf8mb4_bin(与 Java 码点序对齐)。
-    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
-    environment:
-      MYSQL_DATABASE: recon
-      MYSQL_USER: recon
-      MYSQL_PASSWORD: recon
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-recon-root}
-    volumes:
-      - recon_mysql_data:/var/lib/mysql
-    # 仅绑宿主机回环供诊断,不暴露公网。
-    ports:
-      - "127.0.0.1:23306:3306"
-    healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h127.0.0.1 -urecon -precon --silent || exit 1"]
-      interval: 10s
-      timeout: 3s
-      retries: 12
-      start_period: 20s
-
   backend:
-    # 覆盖基座的 H2 file:改指向真库 MySQL 8。其余(镜像/端口/healthcheck)沿用 compose.yml。
     environment:
-      DB_URL: "jdbc:mysql://db:3306/recon?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=utf8"
-      DB_USER: recon
-      DB_PASSWORD: recon
-      # 连接池按 partition 池 × 3 + 余量;与 MySQL max_connections 对齐时用 DB_POOL_SIZE 覆盖。
+      DB_URL: "jdbc:mysql://infra-mysql84:3306/${RECON_DB_NAME:-recon}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=utf8"
+      DB_USER: ${RECON_DB_USER:-recon}
+      DB_PASSWORD: ${RECON_DB_PASSWORD:?set RECON_DB_PASSWORD in .env}
+      # 连接池按 partition 池 × 3 + 余量；并与共享 MySQL max_connections 协调。
       DB_POOL_SIZE: ${DB_POOL_SIZE:-20}
-    depends_on:
-      db:
-        condition: service_healthy
+      # Kafka 功能默认关闭；开启 ODS/outbox 时直接复用 dev-infra Kafka 3.8。
+      RECON_KAFKA_BOOTSTRAP: infra-kafka38:9092
+      # compose.flowable.yml 启用引擎时使用共享 MySQL 中的独立持久化 schema；未启用时这些参数不产生连接。
+      RECON_WORKFLOW_FLOWABLE_JDBC_URL: "jdbc:mysql://infra-mysql84:3306/${RECON_FLOWABLE_DB_NAME:-recon_flowable}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=utf8"
+      RECON_WORKFLOW_FLOWABLE_JDBC_DRIVER: com.mysql.cj.jdbc.Driver
+      RECON_WORKFLOW_FLOWABLE_JDBC_USERNAME: ${RECON_DB_USER:-recon}
+      RECON_WORKFLOW_FLOWABLE_JDBC_PASSWORD: ${RECON_DB_PASSWORD:?set RECON_DB_PASSWORD in .env}
+    networks:
+      - default
+      - dev-infra
 
-volumes:
-  recon_mysql_data:
-    name: recon-platform-mysql-data
+networks:
+  dev-infra:
+    external: true
+    name: ${DEV_INFRA_NETWORK:-dev-infra}

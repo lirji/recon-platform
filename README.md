@@ -28,7 +28,7 @@
 |---|---|---|
 | ① 数据源 | `SourceAdapter` | DB / CSV文件 / API / MQ |
 | ② 勾兑 | `KeyExtractor` + `MatchStrategy` | 单键 / 组合键 / 桥接 / 1:N 聚合 |
-| ③ 判差 | `DiscrepancyEvaluator` | 精确 / 容差 / （阶段二 Drools） |
+| ③ 判差 | `DiscrepancyEvaluator` | 精确 / 容差 / Drools 规则 |
 | ④ 处理 | `DiscrepancyHandler` | 告警 / 差异台账 / 冲正建议 / 人工核销 |
 
 **首要场景（营销三方对账）**拆成责任链式两两对账：`SEG1 营销↔账务`（join 营销发放ID）、`SEG2 账务↔渠道`（join 渠道流水号），账务侧作为 **spine（桥梁）**同时持有两键；账务缺记录 → `BRIDGE_BROKEN` 精确定位断哪段。
@@ -114,7 +114,7 @@ pnpm install
 pnpm dev
 ```
 
-前端完整命令、代理和容器说明见 `recon-console/README.md`。当前阶段**尚未接入 auth**，`operator` 仍由人工处置表单提交，只能用于本地或受控内网，不得直接暴露公网。
+前端完整命令、代理和容器说明见 `recon-console/README.md`。默认 dev profile 免认证，`operator` 回退为人工处置表单值；secure profile 已接入 Casdoor JWT，后端从 token 派生 operator 并忽略请求体同名字段。只有 secure profile 才可暴露到共享测试或生产式网络。
 
 ### Docker 本地部署
 
@@ -125,20 +125,23 @@ curl http://localhost:8088/healthz
 curl http://localhost:8088/recon/dashboard
 ```
 
-管理台暴露在 `http://localhost:8088`；后端仅绑定宿主机 `127.0.0.1:8180` 供诊断，管理台通过 Compose 内部网络访问后端。默认使用具名卷 `recon-platform-data` 持久化 H2 数据，重新构建不会删除该卷；真实生产环境仍应通过 `DB_URL`、`DB_USER`、`DB_PASSWORD` 切换到 MySQL/PostgreSQL（见下）。
+管理台暴露在 `http://localhost:8088`；后端仅绑定宿主机 `127.0.0.1:8180` 供诊断，管理台通过 Compose 内部网络访问后端。`./deploy.sh` 默认复用同级 `dev-infra` 的 MySQL 8.4 和 Kafka 3.8，项目只创建独立 schema/账号/Topic，不再启动重复的公共组件；`./deploy.sh --h2` 才使用具名卷 `recon-platform-data` 的 H2 file 快速模式。
 
 ### 生产 DB（MySQL 8 / PostgreSQL）
 
 基座 `compose.yml` 后端跑 H2 file（免外部依赖）；生产切真库两种方式，二选一：
 
-**① Compose 叠加层（真库端到端本地部署，推荐先跑通）**——`compose.mysql.yml` 起 MySQL 8 并把后端指过去：
+**① Compose 叠加层（本地默认）**——`compose.mysql.yml` 把后端加入 `dev-infra` 外部网络，连接共享 MySQL 8.4/Kafka 3.8，不创建数据库或中间件容器：
 
 ```bash
+cp .env.example .env
+# 修改 .env 中的 RECON_DB_PASSWORD
+./bootstrap-dev-infra.sh
 ./compose.sh -f compose.yml -f compose.mysql.yml up -d --build --remove-orphans
-./compose.sh -f compose.yml -f compose.mysql.yml ps         # 等 db + backend 均 healthy
+./compose.sh -f compose.yml -f compose.mysql.yml ps         # 等 backend + console 均 healthy
 ```
 
-后端启动时 Flyway 自动迁移 **V1 领域 schema + V2 方言 batch 元数据（MySQL 表式序列 `BATCH_*_SEQ`）+ V3 `match_key` collation（`utf8mb4_bin`）**。
+也可直接运行 `./deploy.sh`，它会先幂等执行上述初始化。共享库宿主地址为 `127.0.0.1:43306/recon`，容器内地址为 `infra-mysql84:3306/recon`；凭据只保存在已忽略的 `.env`。后端启动时 Flyway 自动迁移领域 schema、Batch 元数据和后续版本。详细资源、迁移与回滚记录见 [`docs/dev-infra.md`](docs/dev-infra.md)。
 
 **② 直接用环境变量指向已有 MySQL/PG**（K8s / 云托管 DB 等）：
 
@@ -155,7 +158,7 @@ export DB_USER=recon DB_PASSWORD=****** DB_POOL_SIZE=20   # 池 ≈ partition �
 **真库验证**（需本机可 `docker run`；覆盖 collation 序 / PAD SPACE、方言 batch 序列、`idx_merge` 计划、`fetchSize=Integer.MIN_VALUE` 真流式）：
 
 ```bash
-docker run -d --name recon-it-mysql -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=recon -p 127.0.0.1:23306:3306 mysql:8.0
+docker run -d --name recon-it-mysql -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=recon -p 127.0.0.1:23306:3306 mysql:8.4
 docker run -d --name recon-it-pg   -e POSTGRES_DB=recon -e POSTGRES_USER=recon -e POSTGRES_PASSWORD=recon -p 127.0.0.1:26543:5432 postgres:16
 ./mvnw -pl recon-batch -am test -Dtest=RealDbEndToEndIT -Dsurefire.failIfNoSpecifiedTests=false \
   -Drecon.it.mysql.url='jdbc:mysql://127.0.0.1:23306/recon' -Drecon.it.mysql.user=root -Drecon.it.mysql.password=root \
@@ -235,9 +238,8 @@ CSV 必须有表头；字段约定如下：
 | **M5** | 处理链 + 人工核销状态机 + 告警 outbox 中继 + REST | ✅ |
 | **M6** | CSV 源适配器 + 加固 + 全链路集成测试 | ✅ |
 
-> 阶段二（平台化）：ReconScenario 配置驱动、Drools 判差、对接 Flowable 差错工单。
-> 阶段三（按需）：Flink 流式做近实时预警，批处理仍是权威定账。
+阶段二的平台化能力已落地，包括 ReconScenario 配置驱动、Drools 判差、Flowable 工单、受控冲正、权益对账与流式预警内核；启用状态和剩余边界见 [`docs/PHASE2_ROADMAP.md`](docs/PHASE2_ROADMAP.md)。批处理仍是权威定账，流式链路只做近实时预警。
 
 ## 不在 MVP 范围（Non-goals）
 
-DSL 规则平台、Flink/Kafka 流式、跨币种汇率换算算法（`fx_*` 字段仅留位只读）、1:N 明细级下钻、自动冲正执行（仅生成建议待人工确认）。
+跨币种牌价治理与真实清算、生产级全量流式定账、无需审批的自动纠错不在当前范围。现有 Flink/Kafka 只承担近实时预警，冲正与权益 remediation 必须经过建议、审批、幂等 command outbox 和业务侧二次校验；相关中继默认关闭。

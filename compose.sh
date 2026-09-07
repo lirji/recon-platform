@@ -5,6 +5,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLATFORM_PORTS_LOADER="${PLATFORM_PORTS_LOADER:-${SCRIPT_DIR}/../auth-platform/deploy/load-platform-ports.sh}"
 ENV_ARGS=()
+if [[ -r "${SCRIPT_DIR}/.env" ]]; then
+  ENV_ARGS+=(--env-file "${SCRIPT_DIR}/.env")
+fi
 if [[ -r "${PLATFORM_PORTS_LOADER}" ]]; then
   # shellcheck source=/dev/null
   . "${PLATFORM_PORTS_LOADER}"

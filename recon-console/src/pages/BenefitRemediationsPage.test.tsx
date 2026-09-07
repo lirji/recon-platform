@@ -41,8 +41,14 @@ describe('BenefitRemediationsPage', () => {
     mockedPropose.mockResolvedValue(row)
   })
 
+  it('does not query remediations with the login organization as a business tenant', async () => {
+    renderApp(<BenefitRemediationsPage />)
+    expect(await screen.findByText(/请先填写货主业务租户/)).toBeInTheDocument()
+    expect(mockedList).not.toHaveBeenCalled()
+  })
+
   it('renders remediations and hides write actions for a viewer', async () => {
-    renderApp(<BenefitRemediationsPage />, mockAuth({ permissions: ['recon.read'] }))
+    renderApp(<BenefitRemediationsPage />, mockAuth({ permissions: ['recon.read'] }), ['/?tenantId=recon-platform'])
     expect(await screen.findByText('sug-1')).toBeInTheDocument()
     expect(screen.getByText('补发')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /批准/ })).not.toBeInTheDocument()
@@ -51,7 +57,7 @@ describe('BenefitRemediationsPage', () => {
 
   it('approves a proposed reissue with a required approval ref', async () => {
     const user = userEvent.setup()
-    renderApp(<BenefitRemediationsPage />)
+    renderApp(<BenefitRemediationsPage />, undefined, ['/?tenantId=recon-platform'])
     await screen.findByText('sug-1')
     await user.click(screen.getByRole('button', { name: /批准/ }))
     await user.type(screen.getByLabelText('审批引用'), 'APPROVAL-1')
@@ -64,14 +70,16 @@ describe('BenefitRemediationsPage', () => {
 
   it('can propose a manual-review suggestion', async () => {
     const user = userEvent.setup()
-    renderApp(<BenefitRemediationsPage />)
+    renderApp(<BenefitRemediationsPage />, undefined, ['/?tenantId=retail-cn'])
     await user.click(await screen.findByRole('button', { name: /提出建议/ }))
+    expect(screen.getByLabelText('建议货主业务租户')).toHaveValue('retail-cn')
     await user.type(screen.getByLabelText('场景'), 'ENTITLEMENT_FULFILLMENT')
     await user.type(screen.getByLabelText('差异引用'), 'DISC-NEW')
     await user.type(screen.getByLabelText('权益发放项'), 'ITEM-NEW')
     await user.type(screen.getByLabelText('原因'), 'need human review')
     await user.click(screen.getByRole('button', { name: /提交建议/ }))
     await waitFor(() => expect(mockedPropose).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: 'retail-cn',
       action: 'MANUAL_REVIEW',
       discrepancyRef: 'DISC-NEW',
       awardItemNo: 'ITEM-NEW',

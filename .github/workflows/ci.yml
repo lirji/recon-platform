@@ -12,6 +12,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  deployment-config:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Validate Compose overlays
+        run: docker compose --env-file .env.example -f compose.yml -f compose.mysql.yml -f compose.observability.yml config -q
+
   backend:
     runs-on: ubuntu-latest
     timeout-minutes: 30

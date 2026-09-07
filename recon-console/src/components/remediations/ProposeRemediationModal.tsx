@@ -3,7 +3,6 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { App, Alert, Form, Input, Modal, Select } from 'antd'
 import { proposeRemediation } from '../../api/recon'
 import type { ProposeRemediationRequest, RemediationAction } from '../../api/types'
-import { AUTH_CONFIG } from '../../auth/config'
 import { errorMessage } from '../../utils/format'
 
 export interface ProposePrefill {
@@ -44,7 +43,7 @@ export function ProposeRemediationModal({ open, prefill, onClose }: Props) {
   useEffect(() => {
     if (!open) return
     form.setFieldsValue({
-      tenantId: prefill?.tenantId || AUTH_CONFIG.organization,
+      tenantId: prefill?.tenantId || '',
       scenarioCode: prefill?.scenarioCode || '',
       discrepancyRef: prefill?.discrepancyRef || '',
       awardItemNo: prefill?.awardItemNo || '',
@@ -92,8 +91,8 @@ export function ProposeRemediationModal({ open, prefill, onClose }: Props) {
         message="只生成建议，不会动资金。批准后写入 command outbox；relay 默认关闭，不会自动闭环差异。"
       />
       <Form<Values> form={form} layout="vertical" onFinish={(values) => mutation.mutate(values)}>
-        <Form.Item name="tenantId" label="租户" rules={[{ required: true, message: '请填写租户' }]}>
-          <Input aria-label="租户" className="mono" />
+        <Form.Item name="tenantId" label="货主业务租户" rules={[{ required: true, message: '请填写货主业务租户' }]}>
+          <Input id="propose-owner-tenant" aria-label="建议货主业务租户" className="mono" placeholder="与建 SKU / 活动时相同" />
         </Form.Item>
         <Form.Item name="scenarioCode" label="场景" rules={[{ required: true, message: '请填写场景码' }]}>
           <Input aria-label="场景" className="mono" />

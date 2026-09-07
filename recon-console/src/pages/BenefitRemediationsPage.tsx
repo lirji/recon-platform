@@ -6,7 +6,6 @@ import { App, Alert, Button, Card, Form, Grid, Input, Modal, Pagination, Select,
 import { Link } from 'react-router-dom'
 import { approveRemediation, listRemediations, rejectRemediation } from '../api/recon'
 import type { RemediationView } from '../api/types'
-import { AUTH_CONFIG } from '../auth/config'
 import { useAuth } from '../auth/AuthContext'
 import { EmptyState, ErrorState } from '../components/common/AsyncState'
 import { PageHeader } from '../components/common/PageHeader'
@@ -48,30 +47,31 @@ export function BenefitRemediationsPage() {
   const [decision, setDecision] = useState<Decision | null>(null)
   const [approvalRef, setApprovalRef] = useState('')
 
-  const tenantId = seeded.tenantId || AUTH_CONFIG.organization
+  const tenantId = seeded.tenantId?.trim() || ''
   const filters = { tenantId, status: seeded.status, ...pageState }
 
   useEffect(() => {
-    form.setFieldsValue({ tenantId, status: seeded.status })
+    form.setFieldsValue({ tenantId: tenantId || undefined, status: seeded.status })
   }, [form, tenantId, seeded.status])
 
   const remediations = useQuery({
     queryKey: ['benefit-remediations', filters],
     queryFn: () => listRemediations(filters),
+    enabled: Boolean(tenantId),
   })
   const rows = remediations.data?.content || []
 
   const applyFilters = (values: Filters) => {
     setPageState((current) => ({ page: 0, size: current.size }))
     setSearchParams(toSearchParams({
-      tenantId: values.tenantId || AUTH_CONFIG.organization,
+      tenantId: values.tenantId?.trim() || undefined,
       status: values.status,
     }), { replace: true })
   }
 
   const decide = useMutation({
     mutationFn: () => {
-      const body = { tenantId, approvalRef: approvalRef.trim() }
+      const body = { tenantId: decision!.row.tenantId, approvalRef: approvalRef.trim() }
       return decision!.approved
         ? approveRemediation(decision!.row.suggestionId, body)
         : rejectRemediation(decision!.row.suggestionId, body)
@@ -148,8 +148,8 @@ export function BenefitRemediationsPage() {
           message="这不是全自动纠错台。BENEFIT_CASH_3WAY 种子默认停用；中台结果回写与 relay 需单独打开。"
         />
         <Form<Filters> form={form} layout="inline" onFinish={applyFilters} style={{ marginBottom: 16, rowGap: 12 }}>
-          <Form.Item name="tenantId" label="租户">
-            <Input className="mono" style={{ minWidth: 200 }} />
+          <Form.Item name="tenantId" label="筛选货主" rules={[{ required: true, message: '请先填写货主业务租户' }]}>
+            <Input id="filter-owner-tenant" aria-label="筛选货主业务租户" className="mono" placeholder="与建 SKU / 活动时相同，不要填登录组织" style={{ minWidth: 220 }} />
           </Form.Item>
           <Form.Item name="status" label="状态">
             <Select allowClear placeholder="全部状态" style={{ minWidth: 140 }} options={STATUS_OPTIONS} />
@@ -157,11 +157,20 @@ export function BenefitRemediationsPage() {
           <Button type="primary" htmlType="submit">筛选</Button>
         </Form>
 
+        {!tenantId && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="请先填写货主业务租户再筛选。不要用登录组织 recon-platform 当货主。"
+          />
+        )}
+
         {remediations.isError && (
           <ErrorState message={errorMessage(remediations.error)} onRetry={() => void remediations.refetch()} />
         )}
 
-        {!remediations.isError && screens.md && (
+        {Boolean(tenantId) && !remediations.isError && screens.md && (
           <Table<RemediationView>
             rowKey="suggestionId"
             columns={columns}
@@ -173,7 +182,7 @@ export function BenefitRemediationsPage() {
           />
         )}
 
-        {!remediations.isError && !screens.md && (
+        {Boolean(tenantId) && !remediations.isError && !screens.md && (
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
             {rows.map((row) => (
               <div className="mobile-data-card" key={row.suggestionId}>
@@ -194,7 +203,7 @@ export function BenefitRemediationsPage() {
           </Space>
         )}
 
-        {remediations.data && remediations.data.totalElements > 0 && (
+        {Boolean(tenantId) && remediations.data && remediations.data.totalElements > 0 && (
           <Pagination
             style={{ marginTop: 16 }}
             current={remediations.data.page + 1}
@@ -206,7 +215,7 @@ export function BenefitRemediationsPage() {
         )}
       </Card>
 
-      <ProposeRemediationModal open={proposeOpen} onClose={() => setProposeOpen(false)} />
+      <ProposeRemediationModal open={proposeOpen} prefill={tenantId ? { tenantId } : undefined} onClose={() => setProposeOpen(false)} />
 
       <Modal
         title={decision?.approved ? '批准补救' : '驳回补救'}

@@ -72,6 +72,7 @@ release.properties
 **/tmp/
 **/temp/
 **/.cache/
+backups/
 
 # ── 工作流脚手架产物(临时,非项目内容) ─────────────
 docs/design/M2_LAUNCH_ARGS.json
